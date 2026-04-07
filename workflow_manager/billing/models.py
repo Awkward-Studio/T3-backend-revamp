@@ -10,6 +10,12 @@ class InvoiceCounter(models.Model):
         ("src", "SRC"),
     ]
 
+    # invoice_type buckets used by the API
+    TYPE_CHOICES = [
+        ("quote", "Quote"),
+        ("proforma", "Proforma"),
+    ]
+
     series = models.CharField(max_length=10, choices=SERIES_CHOICES, unique=True)
     last_number = models.PositiveIntegerField(default=0)
 
@@ -29,7 +35,6 @@ class Invoice(models.Model):
     job_card = models.ForeignKey(
         JobCard, on_delete=models.CASCADE, related_name="invoices"
     )
-    job_card_id = models.CharField(max_length=50, blank=True)
     invoice_series = models.CharField(max_length=10, choices=SERIES_CHOICES)
     invoice_type = models.CharField(max_length=20, choices=TYPE_CHOICES)
     category = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
@@ -55,53 +60,44 @@ class Invoice(models.Model):
     @classmethod
     def _next_number(cls, invoice_series: str) -> int:
         """
-        Atomically bump and return the next number for (invoice_series, invoice_type).
+        Atomically bump and return the next number for an invoice series.
         """
         with transaction.atomic():
             counter, _ = InvoiceCounter.objects.select_for_update().get_or_create(
-                invoice_series=invoice_series,
+                series=invoice_series,
             )
             counter.last_number = F("last_number") + 1
-            counter.save()
-            counter.refresh_from_db()
+            counter.save(update_fields=["last_number"])
+            counter.refresh_from_db(fields=["last_number"])
             return counter.last_number
 
     @classmethod
     def get_or_create_number(
-        cls, job_card: JobCard, invoice_series: str, invoice_type: str, category: str
+        cls,
+        job_card: JobCard,
+        invoice_series: str,
+        invoice_type: str,
+        category: str = None,
     ) -> int:
         """
         If an invoice of the same spec already exists on this job_card,
         return its number; otherwise allocate a fresh one.
         """
-        existing = cls.objects.filter(
+        # The API stores quote-category as an empty string (see CreateInvoiceView).
+        if invoice_type == "quote":
+            category = ""
+        else:
+            category = category or ""
+
+        existing_qs = cls.objects.filter(
             job_card=job_card,
             invoice_series=invoice_series,
             invoice_type=invoice_type,
             category=category,
-        ).first()
+        )
+        existing = existing_qs.first()
         if existing:
             return existing.invoice_number
 
-        return cls._next_number(invoice_series, invoice_type)
-
-    @classmethod
-    def get_or_create_number(
-        cls, job_card: JobCard, invoice_series: str, category: str = None
-    ) -> int:
-        # customer bucket (quotes + all customer invoices)
-        if category in (None, "", "customer"):
-            existing = cls.objects.filter(
-                job_card=job_card, invoice_series=invoice_series, invoice_type="quote"
-            ).first()
-            if existing:
-                return existing.invoice_number
-            return cls._next_number(invoice_series)
-
-        # insurance bucket
-        existing_ins = cls.objects.filter(
-            job_card=job_card, invoice_series=invoice_series, category="insurance"
-        ).first()
-        if existing_ins:
-            return existing_ins.invoice_number
+        # Counter is tracked per invoice_series.
         return cls._next_number(invoice_series)

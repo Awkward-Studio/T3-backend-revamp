@@ -1,0 +1,6 @@
+# Django 4.2 works on older Python; use 5.x if your Python is 3.10+
+Django>=4.2,<5
+djangorestframework>=3.14
+django-cors-headers>=4.3
+django-filter>=23.1
+psycopg2-binary>=2.9.9

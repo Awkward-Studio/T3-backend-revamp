@@ -14,6 +14,7 @@ class CarSerializer(serializers.ModelSerializer):
             "location",
             "purpose_of_visit",
             "all_job_cards",
+            "cars_table_id",
             "customer_name",
             "customer_phone",
             "customer_address",
@@ -21,6 +22,14 @@ class CarSerializer(serializers.ModelSerializer):
             "customer_email",
             "calling_status",
         ]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Appwrite counterpart expects `carsTableId`
+        data["carsTableId"] = data.pop("cars_table_id", None)
+        if data["carsTableId"] is None:
+            data.pop("carsTableId", None)
+        return data
 
 
 class TempCarSerializer(serializers.ModelSerializer):

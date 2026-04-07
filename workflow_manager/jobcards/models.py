@@ -1,7 +1,7 @@
 import uuid
 from django.db import models, transaction
 from inventory.models import Product
-from .models import TempCar
+from vehicle_management.models import TempCar
 from django.db.models import F
 
 

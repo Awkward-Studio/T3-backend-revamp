@@ -10,6 +10,7 @@ class Car(models.Model):
     location = models.CharField(max_length=200, blank=True)
     purpose_of_visit = models.CharField(max_length=200, blank=True)
     all_job_cards = models.JSONField(default=list, blank=True)
+    cars_table_id = models.CharField(max_length=100, blank=True, null=True)
     customer_name = models.CharField(max_length=200, blank=True)
     customer_phone = models.CharField(max_length=20, blank=True)
     customer_address = models.CharField(max_length=300, blank=True)
