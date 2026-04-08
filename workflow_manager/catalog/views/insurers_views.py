@@ -41,6 +41,8 @@ class InsuranceProviderCreateView(APIView):
         summary="Create an insurance provider",
         description="Create a new insurance provider record.",
         tags=["InsuranceProviders"],
+        request=InsuranceProviderSerializer,
+        responses={201: InsuranceProviderSerializer},
     )
     def post(self, request):
         """
@@ -95,6 +97,8 @@ class InsuranceProviderDetailView(APIView):
         summary="Update an insurance provider",
         description="Update all fields of an insurance provider record.",
         tags=["InsuranceProviders"],
+        request=InsuranceProviderSerializer,
+        responses={200: InsuranceProviderSerializer},
     )
     def put(self, request, pk):
         """
@@ -127,6 +131,8 @@ class InsuranceProviderDetailView(APIView):
         summary="Partially update an insurance provider",
         description="Update specific fields of an insurance provider record.",
         tags=["InsuranceProviders"],
+        request=InsuranceProviderSerializer,
+        responses={200: InsuranceProviderSerializer},
     )
     def patch(self, request, pk):
         """

@@ -41,6 +41,8 @@ class LabourCreateView(APIView):
         summary="Create a labour",
         description="Create a new labour record.",
         tags=["Labours"],
+        request=LabourSerializer,
+        responses={201: LabourSerializer},
     )
     def post(self, request):
         """
@@ -91,6 +93,8 @@ class LabourUpdateView(APIView):
         summary="Update a labour",
         description="Update all fields of a labour record.",
         tags=["Labours"],
+        request=LabourSerializer,
+        responses={200: LabourSerializer},
     )
     def put(self, request, pk):
         """
@@ -120,6 +124,8 @@ class LabourUpdateView(APIView):
         summary="Partially update a labour",
         description="Update specific fields of a labour record.",
         tags=["Labours"],
+        request=LabourSerializer,
+        responses={200: LabourSerializer},
     )
     def patch(self, request, pk):
         """

@@ -47,6 +47,8 @@ class JobCardCreateView(APIView):
         summary="Create a new job card",
         description="Create a new job card record.",
         tags=["JobCards"],
+        request=JobCardSerializer,
+        responses={201: JobCardSerializer},
     )
     def post(self, request):
         """
@@ -97,6 +99,8 @@ class JobCardUpdateView(APIView):
         summary="Update a job card",
         description="Update all fields of a job card record.",
         tags=["JobCards"],
+        request=JobCardSerializer,
+        responses={200: JobCardSerializer},
     )
     def put(self, request, pk):
         """
@@ -125,6 +129,8 @@ class JobCardUpdateView(APIView):
         summary="Partially update a job card",
         description="Update specific fields of a job card record.",
         tags=["JobCards"],
+        request=JobCardSerializer,
+        responses={200: JobCardSerializer},
     )
     def patch(self, request, pk):
         """
@@ -200,6 +206,8 @@ class CurrentPartCreateView(APIView):
         summary="Create a current part snapshot",
         description="Create a new current part snapshot record.",
         tags=["CurrentParts"],
+        request=CurrentPartSerializer,
+        responses={201: CurrentPartSerializer},
     )
     def post(self, request):
         serializer = CurrentPartSerializer(data=request.data)
@@ -243,6 +251,8 @@ class CurrentPartUpdateView(APIView):
         summary="Update a current part snapshot",
         description="Update all fields of a current part snapshot record.",
         tags=["CurrentParts"],
+        request=CurrentPartSerializer,
+        responses={200: CurrentPartSerializer},
     )
     def put(self, request, pk):
         item = get_object_or_404(CurrentPart, pk=pk)
@@ -269,6 +279,8 @@ class CurrentPartUpdateView(APIView):
         summary="Partially update a current part snapshot",
         description="Update specific fields of a current part snapshot record.",
         tags=["CurrentParts"],
+        request=CurrentPartSerializer,
+        responses={200: CurrentPartSerializer},
     )
     def patch(self, request, pk):
         item = get_object_or_404(CurrentPart, pk=pk)
@@ -339,6 +351,8 @@ class CurrentLabourCreateView(APIView):
         summary="Create a current labour snapshot",
         description="Create a new current labour snapshot record.",
         tags=["CurrentLabours"],
+        request=CurrentLabourSerializer,
+        responses={201: CurrentLabourSerializer},
     )
     def post(self, request):
         serializer = CurrentLabourSerializer(data=request.data)
@@ -382,6 +396,8 @@ class CurrentLabourUpdateView(APIView):
         summary="Update a current labour snapshot",
         description="Update all fields of a current labour snapshot record.",
         tags=["CurrentLabours"],
+        request=CurrentLabourSerializer,
+        responses={200: CurrentLabourSerializer},
     )
     def put(self, request, pk):
         item = get_object_or_404(CurrentLabour, pk=pk)
@@ -408,6 +424,8 @@ class CurrentLabourUpdateView(APIView):
         summary="Partially update a current labour snapshot",
         description="Update specific fields of a current labour snapshot record.",
         tags=["CurrentLabours"],
+        request=CurrentLabourSerializer,
+        responses={200: CurrentLabourSerializer},
     )
     def patch(self, request, pk):
         item = get_object_or_404(CurrentLabour, pk=pk)

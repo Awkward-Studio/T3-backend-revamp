@@ -41,6 +41,8 @@ class VehicleModelsCreateView(APIView):
         summary="Create a vehicle model entry",
         description="Create a new vehicle make/model entry.",
         tags=["VehicleModels"],
+        request=VehicleModelSerializer,
+        responses={201: VehicleModelSerializer},
     )
     def post(self, request):
         """
@@ -94,6 +96,8 @@ class VehicleModelsDetailView(APIView):
         summary="Update a vehicle model entry",
         description="Update all fields of a vehicle make/model entry.",
         tags=["VehicleModels"],
+        request=VehicleModelSerializer,
+        responses={200: VehicleModelSerializer},
     )
     def put(self, request, pk):
         """
@@ -126,6 +130,8 @@ class VehicleModelsDetailView(APIView):
         summary="Partially update a vehicle model entry",
         description="Update specific fields of a vehicle make/model entry.",
         tags=["VehicleModels"],
+        request=VehicleModelSerializer,
+        responses={200: VehicleModelSerializer},
     )
     def patch(self, request, pk):
         """

@@ -69,6 +69,7 @@ class ProductCreateView(APIView):
         tags=["Products"],
     )
     def post(self, request):
+        # TODO: verify request serializer
         if isinstance(
             request.data, list
         ):  # Check if the request is for multiple entries
@@ -112,6 +113,8 @@ class ProductUpdateView(APIView):
         summary="Partially update a product",
         description="Update specific fields of a product record.",
         tags=["Products"],
+        request=ProductUpdateSerializer,
+        responses={200: ProductUpdateSerializer},
     )
     def patch(self, request, pk):
         try:

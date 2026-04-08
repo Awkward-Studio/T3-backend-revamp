@@ -43,6 +43,8 @@ class CarCreateView(APIView):
         summary="Create a new car",
         description="Create a new car record.",
         tags=["Cars"],
+        request=CarSerializer,
+        responses={201: CarSerializer},
     )
     def post(self, request):
         serializer = CarSerializer(data=request.data)
@@ -85,6 +87,8 @@ class CarUpdateView(APIView):
         summary="Update a car",
         description="Update all fields of a car record.",
         tags=["Cars"],
+        request=CarSerializer,
+        responses={200: CarSerializer},
     )
     def put(self, request, pk):
         car = get_object_or_404(Car, pk=pk)
@@ -110,6 +114,8 @@ class CarUpdateView(APIView):
         summary="Partially update a car",
         description="Update specific fields of a car record.",
         tags=["Cars"],
+        request=CarSerializer,
+        responses={200: CarSerializer},
     )
     def patch(self, request, pk):
         car = get_object_or_404(Car, pk=pk)
@@ -184,6 +190,8 @@ class TempCarCreateView(APIView):
         summary="Create a new temp car",
         description="Create a new temp car record.",
         tags=["TempCars"],
+        request=TempCarSerializer,
+        responses={201: TempCarSerializer},
     )
     def post(self, request):
         serializer = TempCarSerializer(data=request.data)
@@ -228,6 +236,8 @@ class TempCarUpdateView(APIView):
         summary="Update a temp car",
         description="Update all fields of a temp car record.",
         tags=["TempCars"],
+        request=TempCarSerializer,
+        responses={200: TempCarSerializer},
     )
     def put(self, request, pk):
         temp = get_object_or_404(TempCar, pk=pk)
@@ -253,6 +263,8 @@ class TempCarUpdateView(APIView):
         summary="Partially update a temp car",
         description="Update specific fields of a temp car record.",
         tags=["TempCars"],
+        request=TempCarSerializer,
+        responses={200: TempCarSerializer},
     )
     def patch(self, request, pk):
         temp = get_object_or_404(TempCar, pk=pk)
