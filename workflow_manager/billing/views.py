@@ -5,6 +5,7 @@ from rest_framework import status, permissions
 from django.db import transaction, IntegrityError, DatabaseError
 from rest_framework.exceptions import NotFound
 from jobcards.models import JobCard
+from users.permissions import IsBillerOrAdmin
 from .models import Invoice
 from .serializers import InvoiceSerializer
 from drf_spectacular.utils import extend_schema, extend_schema_view
@@ -12,7 +13,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_view
 
 # @TODO: use serializers
 class GetNextInvoiceNumberView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsBillerOrAdmin]
 
     @extend_schema(
         summary="Get next invoice number",
@@ -56,7 +57,7 @@ class GetNextInvoiceNumberView(APIView):
 
 
 class CreateInvoiceView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsBillerOrAdmin]
 
     @extend_schema(
         summary="Create a new invoice",
@@ -134,7 +135,7 @@ class CreateInvoiceView(APIView):
 
 
 class InvoiceListView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsBillerOrAdmin]
 
     @extend_schema(
         summary="List invoices for a job card",
@@ -166,7 +167,7 @@ class InvoiceListView(APIView):
 
 
 class InvoiceDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsBillerOrAdmin]
 
     @extend_schema(
         summary="Retrieve an invoice",

@@ -3,6 +3,24 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser
 
 
+class RoleName:
+    ADMIN = "admin"
+    SERVICE = "service"
+    BILLER = "biller"
+    PARTS = "parts"
+    SECURITY = "security"
+    CALLER = "caller"
+
+    ALL = (
+        ADMIN,
+        SERVICE,
+        BILLER,
+        PARTS,
+        SECURITY,
+        CALLER,
+    )
+
+
 class Label(models.Model):
     name = models.CharField(max_length=50, unique=True)
 
@@ -27,6 +45,10 @@ class Role(models.Model):
         verbose_name_plural = "Roles"
         ordering = ["id"]
 
+    @classmethod
+    def role_names(cls):
+        return RoleName.ALL
+
 
 class CustomUser(AbstractUser):
     # free-form tags
@@ -41,5 +63,19 @@ class CustomUser(AbstractUser):
     )
 
     roles = models.ManyToManyField(Role, blank=True, related_name="users")
+
+    def has_role(self, role_name):
+        return self.roles.filter(name=role_name).exists()
+
+    def has_any_role(self, role_names):
+        return self.roles.filter(name__in=role_names).exists()
+
+    def get_primary_role(self):
+        role = self.roles.order_by("id").first()
+        return role.name if role else None
+
+    def set_single_role(self, role_name):
+        role = Role.objects.get(name=role_name)
+        self.roles.set([role])
 
 

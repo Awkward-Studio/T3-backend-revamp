@@ -2,10 +2,11 @@
 from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status, permissions
+from rest_framework import status
 from django.db import IntegrityError, DatabaseError
+from users.permissions import IsServiceOrAdmin
 
-from .models import JobCard, Product, CurrentPart, CurrentLabour
+from .models import JobCard, CurrentPart, CurrentLabour
 from .serializers import (
     JobCardSerializer,
     CurrentPartSerializer,
@@ -23,7 +24,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_view
     ),
 )
 class JobCardListView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsServiceOrAdmin]
 
     def get(self, request):
         """
@@ -41,7 +42,7 @@ class JobCardListView(APIView):
 
 
 class JobCardCreateView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsServiceOrAdmin]
 
     @extend_schema(
         summary="Create a new job card",
@@ -76,7 +77,7 @@ class JobCardCreateView(APIView):
 
 
 class JobCardDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsServiceOrAdmin]
 
     @extend_schema(
         summary="Retrieve a job card",
@@ -93,7 +94,7 @@ class JobCardDetailView(APIView):
 
 
 class JobCardUpdateView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsServiceOrAdmin]
 
     @extend_schema(
         summary="Update a job card",
@@ -157,7 +158,7 @@ class JobCardUpdateView(APIView):
 
 
 class JobCardDeleteView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsServiceOrAdmin]
 
     @extend_schema(
         summary="Delete a job card",
@@ -180,7 +181,7 @@ class JobCardDeleteView(APIView):
 
 
 class CurrentPartListView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsServiceOrAdmin]
 
     @extend_schema(
         summary="List all current parts",
@@ -200,7 +201,7 @@ class CurrentPartListView(APIView):
 
 
 class CurrentPartCreateView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsServiceOrAdmin]
 
     @extend_schema(
         summary="Create a current part snapshot",
@@ -231,7 +232,7 @@ class CurrentPartCreateView(APIView):
 
 
 class CurrentPartDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsServiceOrAdmin]
 
     @extend_schema(
         summary="Retrieve a current part snapshot",
@@ -245,7 +246,7 @@ class CurrentPartDetailView(APIView):
 
 
 class CurrentPartUpdateView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsServiceOrAdmin]
 
     @extend_schema(
         summary="Update a current part snapshot",
@@ -305,7 +306,7 @@ class CurrentPartUpdateView(APIView):
 
 
 class CurrentPartDeleteView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsServiceOrAdmin]
 
     @extend_schema(
         summary="Delete a current part snapshot",
@@ -325,7 +326,7 @@ class CurrentPartDeleteView(APIView):
 
 
 class CurrentLabourListView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsServiceOrAdmin]
 
     @extend_schema(
         summary="List all current labours",
@@ -345,7 +346,7 @@ class CurrentLabourListView(APIView):
 
 
 class CurrentLabourCreateView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsServiceOrAdmin]
 
     @extend_schema(
         summary="Create a current labour snapshot",
@@ -376,7 +377,7 @@ class CurrentLabourCreateView(APIView):
 
 
 class CurrentLabourDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsServiceOrAdmin]
 
     @extend_schema(
         summary="Retrieve a current labour snapshot",
@@ -390,7 +391,7 @@ class CurrentLabourDetailView(APIView):
 
 
 class CurrentLabourUpdateView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsServiceOrAdmin]
 
     @extend_schema(
         summary="Update a current labour snapshot",
@@ -450,7 +451,7 @@ class CurrentLabourUpdateView(APIView):
 
 
 class CurrentLabourDeleteView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsServiceOrAdmin]
 
     @extend_schema(
         summary="Delete a current labour snapshot",
@@ -473,6 +474,8 @@ class AddPartsToJobCardView(APIView):
     """
     Add/update/delete multiple CurrentPart entries on a JobCard.
     """
+
+    permission_classes = [IsServiceOrAdmin]
 
     @extend_schema(
         summary="Add parts to a job card",
@@ -573,6 +576,8 @@ class AddLaboursToJobCardView(APIView):
     Add/update/delete multiple CurrentLabour entries on a JobCard’s TempCar.
     """
 
+    permission_classes = [IsServiceOrAdmin]
+
     @extend_schema(
         summary="Add labours to a job card",
         description="Add, update, or delete current labour snapshots for a job card's temp car.",
@@ -661,7 +666,7 @@ class AddLaboursToJobCardView(APIView):
 
 
 class FinalizeJobCardView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsServiceOrAdmin]
 
     @extend_schema(
         summary="Finalize a job card",

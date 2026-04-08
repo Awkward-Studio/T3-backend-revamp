@@ -1,11 +1,11 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.permissions import AllowAny
 from django.shortcuts import get_object_or_404
 import csv
 import io
 from datetime import datetime
+from users.permissions import IsPartsOrAdmin
 
 from .models import Product
 from .serializers import (
@@ -34,7 +34,7 @@ class ProductListView(APIView):
     - Ordering (ascending/descending)
     """
 
-    permission_classes = [AllowAny]
+    permission_classes = [IsPartsOrAdmin]
 
     def get(self, request):
         products = Product.objects.all()
@@ -61,7 +61,7 @@ class ProductCreateView(APIView):
     Handle POST requests to create a new product.
     """
 
-    permission_classes = [AllowAny]
+    permission_classes = [IsPartsOrAdmin]
 
     @extend_schema(
         summary="Create a new product",
@@ -88,6 +88,8 @@ class ProductDetailView(APIView):
     Handle GET requests to retrieve a specific product.
     """
 
+    permission_classes = [IsPartsOrAdmin]
+
     @extend_schema(
         summary="Retrieve a product",
         description="Get detailed information about a specific product.",
@@ -108,6 +110,8 @@ class ProductUpdateView(APIView):
     """
     Handle PUT requests to update a product.
     """
+
+    permission_classes = [IsPartsOrAdmin]
 
     @extend_schema(
         summary="Partially update a product",
@@ -136,6 +140,8 @@ class ProductDeleteView(APIView):
     Handle DELETE requests to delete a product.
     """
 
+    permission_classes = [IsPartsOrAdmin]
+
     @extend_schema(
         summary="Delete a product",
         description="Delete a product record.",
@@ -159,6 +165,8 @@ class ProductCsvUploadView(APIView):
     """
     Handle CSV uploads to create products in the database.
     """
+
+    permission_classes = [IsPartsOrAdmin]
 
     @extend_schema(
         summary="Upload products via CSV",
