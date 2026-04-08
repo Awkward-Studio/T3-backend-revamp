@@ -6,8 +6,16 @@ from django.db import IntegrityError, DatabaseError, transaction
 
 from catalog.models.insurers_model import InsuranceProvider
 from catalog.serializers.insurers_serializers import InsuranceProviderSerializer
+from drf_spectacular.utils import extend_schema, extend_schema_view
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="List all insurance providers",
+        description="Retrieve a list of all insurance providers.",
+        tags=["InsuranceProviders"],
+    ),
+)
 class InsuranceProviderListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -29,6 +37,11 @@ class InsuranceProviderListView(APIView):
 class InsuranceProviderCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Create an insurance provider",
+        description="Create a new insurance provider record.",
+        tags=["InsuranceProviders"],
+    )
     def post(self, request):
         """
         POST /api/insurance-providers/create/
@@ -64,6 +77,11 @@ class InsuranceProviderCreateView(APIView):
 class InsuranceProviderDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Retrieve an insurance provider",
+        description="Get detailed information about a specific insurance provider.",
+        tags=["InsuranceProviders"],
+    )
     def get(self, request, pk):
         """
         GET /api/insurance-providers/{pk}/
@@ -73,6 +91,11 @@ class InsuranceProviderDetailView(APIView):
             InsuranceProviderSerializer(provider).data, status=status.HTTP_200_OK
         )
 
+    @extend_schema(
+        summary="Update an insurance provider",
+        description="Update all fields of an insurance provider record.",
+        tags=["InsuranceProviders"],
+    )
     def put(self, request, pk):
         """
         PUT /api/insurance-providers/{pk}/update/
@@ -100,6 +123,11 @@ class InsuranceProviderDetailView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    @extend_schema(
+        summary="Partially update an insurance provider",
+        description="Update specific fields of an insurance provider record.",
+        tags=["InsuranceProviders"],
+    )
     def patch(self, request, pk):
         """
         PATCH /api/insurance-providers/{pk}/partial-update/
@@ -129,6 +157,11 @@ class InsuranceProviderDetailView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    @extend_schema(
+        summary="Delete an insurance provider",
+        description="Delete an insurance provider record.",
+        tags=["InsuranceProviders"],
+    )
     def delete(self, request, pk):
         """
         DELETE /api/insurance-providers/{pk}/delete/

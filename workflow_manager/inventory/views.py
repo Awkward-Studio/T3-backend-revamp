@@ -16,8 +16,16 @@ from .serializers import (
 )
 
 from .filters import ProductFilter
+from drf_spectacular.utils import extend_schema, extend_schema_view
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="List all products",
+        description="Retrieve a list of all products with optional filtering, search, and ordering.",
+        tags=["Products"],
+    ),
+)
 class ProductListView(APIView):
     """
     Handle GET requests to list all products with:
@@ -55,6 +63,11 @@ class ProductCreateView(APIView):
 
     permission_classes = [AllowAny]
 
+    @extend_schema(
+        summary="Create a new product",
+        description="Create a new product record (single or bulk).",
+        tags=["Products"],
+    )
     def post(self, request):
         if isinstance(
             request.data, list
@@ -74,6 +87,11 @@ class ProductDetailView(APIView):
     Handle GET requests to retrieve a specific product.
     """
 
+    @extend_schema(
+        summary="Retrieve a product",
+        description="Get detailed information about a specific product.",
+        tags=["Products"],
+    )
     def get(self, request, pk):
         try:
             product = Product.objects.get(pk=pk)
@@ -90,6 +108,11 @@ class ProductUpdateView(APIView):
     Handle PUT requests to update a product.
     """
 
+    @extend_schema(
+        summary="Partially update a product",
+        description="Update specific fields of a product record.",
+        tags=["Products"],
+    )
     def patch(self, request, pk):
         try:
             product = Product.objects.get(pk=pk)
@@ -110,6 +133,11 @@ class ProductDeleteView(APIView):
     Handle DELETE requests to delete a product.
     """
 
+    @extend_schema(
+        summary="Delete a product",
+        description="Delete a product record.",
+        tags=["Products"],
+    )
     def delete(self, request, pk):
         try:
             product = Product.objects.get(pk=pk)
@@ -129,6 +157,11 @@ class ProductCsvUploadView(APIView):
     Handle CSV uploads to create products in the database.
     """
 
+    @extend_schema(
+        summary="Upload products via CSV",
+        description="Upload a CSV file to create product records in bulk.",
+        tags=["Products"],
+    )
     def post(self, request):
         csv_file = request.FILES.get("file")
         if not csv_file:

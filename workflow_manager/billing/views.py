@@ -7,12 +7,18 @@ from rest_framework.exceptions import NotFound
 from jobcards.models import JobCard
 from .models import Invoice
 from .serializers import InvoiceSerializer
+from drf_spectacular.utils import extend_schema, extend_schema_view
 
 
 # @TODO: use serializers
 class GetNextInvoiceNumberView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Get next invoice number",
+        description="Retrieve the next invoice number for a given job card and invoice series/type.",
+        tags=["Invoices"],
+    )
     def get(self, request, jobcard_id):
 
         jobcard = get_object_or_404(JobCard, id=jobcard_id)
@@ -52,6 +58,11 @@ class GetNextInvoiceNumberView(APIView):
 class CreateInvoiceView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Create a new invoice",
+        description="Create a new invoice record for a job card.",
+        tags=["Invoices"],
+    )
     def post(self, request):
         """
         POST /api/invoices/create/
@@ -125,6 +136,11 @@ class CreateInvoiceView(APIView):
 class InvoiceListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="List invoices for a job card",
+        description="Retrieve a list of invoices for a specific job card.",
+        tags=["Invoices"],
+    )
     def get(self, request, jobcard_id):
         """
         GET /api/jobcards/{jobcard_id}/invoices/
@@ -152,6 +168,11 @@ class InvoiceListView(APIView):
 class InvoiceDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Retrieve an invoice",
+        description="Get detailed information about a specific invoice.",
+        tags=["Invoices"],
+    )
     def get(self, request, invoice_id):
         try:
             inv = get_object_or_404(Invoice, id=invoice_id)
@@ -167,6 +188,11 @@ class InvoiceDetailView(APIView):
 
         return Response(InvoiceSerializer(inv).data)
 
+    @extend_schema(
+        summary="Update an invoice",
+        description="Update all fields of an invoice record that are allowed to be modified.",
+        tags=["Invoices"],
+    )
     def put(self, request, invoice_id):
         """
         PUT  /api/invoices/{invoice_id}/update/
@@ -196,6 +222,11 @@ class InvoiceDetailView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    @extend_schema(
+        summary="Partially update an invoice",
+        description="Update specific fields of an invoice record that are allowed to be modified.",
+        tags=["Invoices"],
+    )
     def patch(self, request, invoice_id):
         """
         PATCH /api/invoices/{invoice_id}/partial-update/
@@ -225,6 +256,11 @@ class InvoiceDetailView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    @extend_schema(
+        summary="Delete an invoice",
+        description="Delete an invoice record.",
+        tags=["Invoices"],
+    )
     def delete(self, request, invoice_id):
         """
         DELETE /api/invoices/{invoice_id}/delete/

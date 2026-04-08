@@ -6,8 +6,16 @@ from django.db import IntegrityError, DatabaseError
 
 from catalog.models.labour_models import Labour
 from catalog.serializers.labour_serializers import LabourSerializer
+from drf_spectacular.utils import extend_schema, extend_schema_view
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="List all labours",
+        description="Retrieve a list of all labour records.",
+        tags=["Labours"],
+    ),
+)
 class LabourListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -29,6 +37,11 @@ class LabourListView(APIView):
 class LabourCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Create a labour",
+        description="Create a new labour record.",
+        tags=["Labours"],
+    )
     def post(self, request):
         """
         POST /api/labours/create/
@@ -57,6 +70,11 @@ class LabourCreateView(APIView):
 class LabourDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Retrieve a labour",
+        description="Get detailed information about a specific labour record.",
+        tags=["Labours"],
+    )
     def get(self, request, pk):
         """
         GET /api/labours/{pk}/
@@ -69,6 +87,11 @@ class LabourDetailView(APIView):
 class LabourUpdateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Update a labour",
+        description="Update all fields of a labour record.",
+        tags=["Labours"],
+    )
     def put(self, request, pk):
         """
         PUT /api/labours/{pk}/update/
@@ -93,6 +116,11 @@ class LabourUpdateView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    @extend_schema(
+        summary="Partially update a labour",
+        description="Update specific fields of a labour record.",
+        tags=["Labours"],
+    )
     def patch(self, request, pk):
         """
         PATCH /api/labours/{pk}/update/
@@ -121,6 +149,11 @@ class LabourUpdateView(APIView):
 class LabourDeleteView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Delete a labour",
+        description="Delete a labour record.",
+        tags=["Labours"],
+    )
     def delete(self, request, pk):
         """
         DELETE /api/labours/{pk}/delete/

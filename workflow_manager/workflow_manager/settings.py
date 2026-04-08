@@ -45,7 +45,8 @@ INSTALLED_APPS = [
     "vehicle_management", 
     "inventory", 
     "billing", 
-    "catalog"
+    "catalog",
+    "drf_spectacular"
 ]
 
 MIDDLEWARE = [
@@ -144,6 +145,7 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
 # CORS (useful when Next.js calls this API from another origin)

@@ -7,11 +7,19 @@ from django.db import IntegrityError, DatabaseError
 
 from .models import Car, TempCar
 from .serializers import CarSerializer, TempCarSerializer
+from drf_spectacular.utils import extend_schema, extend_schema_view
 
 
 # ─── CARS ────────────────────────────────────────────────────
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="List all cars",
+        description="Retrieve a list of all cars.",
+        tags=["Cars"],
+    ),
+)
 class CarListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -31,6 +39,11 @@ class CarListView(APIView):
 class CarCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Create a new car",
+        description="Create a new car record.",
+        tags=["Cars"],
+    )
     def post(self, request):
         serializer = CarSerializer(data=request.data)
         if not serializer.is_valid():
@@ -54,6 +67,11 @@ class CarCreateView(APIView):
 class CarDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Retrieve a car",
+        description="Get detailed information about a specific car.",
+        tags=["Cars"],
+    )
     def get(self, request, pk):
         car = get_object_or_404(Car, pk=pk)
         serializer = CarSerializer(car)
@@ -63,6 +81,11 @@ class CarDetailView(APIView):
 class CarUpdateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Update a car",
+        description="Update all fields of a car record.",
+        tags=["Cars"],
+    )
     def put(self, request, pk):
         car = get_object_or_404(Car, pk=pk)
         serializer = CarSerializer(car, data=request.data)
@@ -83,6 +106,11 @@ class CarUpdateView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    @extend_schema(
+        summary="Partially update a car",
+        description="Update specific fields of a car record.",
+        tags=["Cars"],
+    )
     def patch(self, request, pk):
         car = get_object_or_404(Car, pk=pk)
         serializer = CarSerializer(car, data=request.data, partial=True)
@@ -107,6 +135,11 @@ class CarUpdateView(APIView):
 class CarDeleteView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Delete a car",
+        description="Delete a car record.",
+        tags=["Cars"],
+    )
     def delete(self, request, pk):
         car = get_object_or_404(Car, pk=pk)
         try:
@@ -122,6 +155,13 @@ class CarDeleteView(APIView):
 # ─── TEMP CARS ───────────────────────────────────────────────
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="List all temp cars",
+        description="Retrieve a list of all temp cars.",
+        tags=["TempCars"],
+    ),
+)
 class TempCarListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -140,6 +180,11 @@ class TempCarListView(APIView):
 class TempCarCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Create a new temp car",
+        description="Create a new temp car record.",
+        tags=["TempCars"],
+    )
     def post(self, request):
         serializer = TempCarSerializer(data=request.data)
         if not serializer.is_valid():
@@ -165,6 +210,11 @@ class TempCarCreateView(APIView):
 class TempCarDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Retrieve a temp car",
+        description="Get detailed information about a specific temp car.",
+        tags=["TempCars"],
+    )
     def get(self, request, pk):
         temp = get_object_or_404(TempCar, pk=pk)
         serializer = TempCarSerializer(temp)
@@ -174,6 +224,11 @@ class TempCarDetailView(APIView):
 class TempCarUpdateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Update a temp car",
+        description="Update all fields of a temp car record.",
+        tags=["TempCars"],
+    )
     def put(self, request, pk):
         temp = get_object_or_404(TempCar, pk=pk)
         serializer = TempCarSerializer(temp, data=request.data)
@@ -194,6 +249,11 @@ class TempCarUpdateView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    @extend_schema(
+        summary="Partially update a temp car",
+        description="Update specific fields of a temp car record.",
+        tags=["TempCars"],
+    )
     def patch(self, request, pk):
         temp = get_object_or_404(TempCar, pk=pk)
         serializer = TempCarSerializer(temp, data=request.data, partial=True)
@@ -219,6 +279,11 @@ class TempCarDeleteView(APIView):
     # TODO: Add jobcard data transfer
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Delete a temp car",
+        description="Delete a temp car record.",
+        tags=["TempCars"],
+    )
     def delete(self, request, pk):
         temp = get_object_or_404(TempCar, pk=pk)
         try:

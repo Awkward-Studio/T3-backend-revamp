@@ -12,8 +12,16 @@ from .serializers import (
     CurrentLabourSerializer,
 )
 from inventory.models import Product
+from drf_spectacular.utils import extend_schema, extend_schema_view
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="List all job cards",
+        description="Retrieve a list of all job cards.",
+        tags=["JobCards"],
+    ),
+)
 class JobCardListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -35,6 +43,11 @@ class JobCardListView(APIView):
 class JobCardCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Create a new job card",
+        description="Create a new job card record.",
+        tags=["JobCards"],
+    )
     def post(self, request):
         """
         POST /api/jobcards/create/
@@ -63,6 +76,11 @@ class JobCardCreateView(APIView):
 class JobCardDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Retrieve a job card",
+        description="Get detailed information about a specific job card.",
+        tags=["JobCards"],
+    )
     def get(self, request, pk):
         """
         GET /api/jobcards/{pk}/
@@ -75,6 +93,11 @@ class JobCardDetailView(APIView):
 class JobCardUpdateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Update a job card",
+        description="Update all fields of a job card record.",
+        tags=["JobCards"],
+    )
     def put(self, request, pk):
         """
         PUT /api/jobcards/{pk}/update/
@@ -98,6 +121,11 @@ class JobCardUpdateView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    @extend_schema(
+        summary="Partially update a job card",
+        description="Update specific fields of a job card record.",
+        tags=["JobCards"],
+    )
     def patch(self, request, pk):
         """
         PATCH /api/jobcards/{pk}/update/
@@ -125,6 +153,11 @@ class JobCardUpdateView(APIView):
 class JobCardDeleteView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Delete a job card",
+        description="Delete a job card record.",
+        tags=["JobCards"],
+    )
     def delete(self, request, pk):
         """
         DELETE /api/jobcards/{pk}/delete/
@@ -143,6 +176,11 @@ class JobCardDeleteView(APIView):
 class CurrentPartListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="List all current parts",
+        description="Retrieve a list of all current part snapshots.",
+        tags=["CurrentParts"],
+    )
     def get(self, request):
         try:
             items = CurrentPart.objects.all()
@@ -158,6 +196,11 @@ class CurrentPartListView(APIView):
 class CurrentPartCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Create a current part snapshot",
+        description="Create a new current part snapshot record.",
+        tags=["CurrentParts"],
+    )
     def post(self, request):
         serializer = CurrentPartSerializer(data=request.data)
         if not serializer.is_valid():
@@ -182,6 +225,11 @@ class CurrentPartCreateView(APIView):
 class CurrentPartDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Retrieve a current part snapshot",
+        description="Get detailed information about a specific current part snapshot.",
+        tags=["CurrentParts"],
+    )
     def get(self, request, pk):
         item = get_object_or_404(CurrentPart, pk=pk)
         serializer = CurrentPartSerializer(item)
@@ -191,6 +239,11 @@ class CurrentPartDetailView(APIView):
 class CurrentPartUpdateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Update a current part snapshot",
+        description="Update all fields of a current part snapshot record.",
+        tags=["CurrentParts"],
+    )
     def put(self, request, pk):
         item = get_object_or_404(CurrentPart, pk=pk)
         serializer = CurrentPartSerializer(item, data=request.data)
@@ -212,6 +265,11 @@ class CurrentPartUpdateView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    @extend_schema(
+        summary="Partially update a current part snapshot",
+        description="Update specific fields of a current part snapshot record.",
+        tags=["CurrentParts"],
+    )
     def patch(self, request, pk):
         item = get_object_or_404(CurrentPart, pk=pk)
         serializer = CurrentPartSerializer(item, data=request.data, partial=True)
@@ -237,6 +295,11 @@ class CurrentPartUpdateView(APIView):
 class CurrentPartDeleteView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Delete a current part snapshot",
+        description="Delete a current part snapshot record.",
+        tags=["CurrentParts"],
+    )
     def delete(self, request, pk):
         item = get_object_or_404(CurrentPart, pk=pk)
         try:
@@ -252,6 +315,11 @@ class CurrentPartDeleteView(APIView):
 class CurrentLabourListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="List all current labours",
+        description="Retrieve a list of all current labour snapshots.",
+        tags=["CurrentLabours"],
+    )
     def get(self, request):
         try:
             items = CurrentLabour.objects.all()
@@ -267,6 +335,11 @@ class CurrentLabourListView(APIView):
 class CurrentLabourCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Create a current labour snapshot",
+        description="Create a new current labour snapshot record.",
+        tags=["CurrentLabours"],
+    )
     def post(self, request):
         serializer = CurrentLabourSerializer(data=request.data)
         if not serializer.is_valid():
@@ -291,6 +364,11 @@ class CurrentLabourCreateView(APIView):
 class CurrentLabourDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Retrieve a current labour snapshot",
+        description="Get detailed information about a specific current labour snapshot.",
+        tags=["CurrentLabours"],
+    )
     def get(self, request, pk):
         item = get_object_or_404(CurrentLabour, pk=pk)
         serializer = CurrentLabourSerializer(item)
@@ -300,6 +378,11 @@ class CurrentLabourDetailView(APIView):
 class CurrentLabourUpdateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Update a current labour snapshot",
+        description="Update all fields of a current labour snapshot record.",
+        tags=["CurrentLabours"],
+    )
     def put(self, request, pk):
         item = get_object_or_404(CurrentLabour, pk=pk)
         serializer = CurrentLabourSerializer(item, data=request.data)
@@ -321,6 +404,11 @@ class CurrentLabourUpdateView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    @extend_schema(
+        summary="Partially update a current labour snapshot",
+        description="Update specific fields of a current labour snapshot record.",
+        tags=["CurrentLabours"],
+    )
     def patch(self, request, pk):
         item = get_object_or_404(CurrentLabour, pk=pk)
         serializer = CurrentLabourSerializer(item, data=request.data, partial=True)
@@ -346,6 +434,11 @@ class CurrentLabourUpdateView(APIView):
 class CurrentLabourDeleteView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Delete a current labour snapshot",
+        description="Delete a current labour snapshot record.",
+        tags=["CurrentLabours"],
+    )
     def delete(self, request, pk):
         item = get_object_or_404(CurrentLabour, pk=pk)
         try:
@@ -363,6 +456,11 @@ class AddPartsToJobCardView(APIView):
     Add/update/delete multiple CurrentPart entries on a JobCard.
     """
 
+    @extend_schema(
+        summary="Add parts to a job card",
+        description="Add, update, or delete current part snapshots for a specific job card.",
+        tags=["JobCards"],
+    )
     def post(self, request, jobcard_id):
         # 1) fetch the jobcard
         jobcard = get_object_or_404(JobCard, id=jobcard_id)
@@ -457,6 +555,11 @@ class AddLaboursToJobCardView(APIView):
     Add/update/delete multiple CurrentLabour entries on a JobCard’s TempCar.
     """
 
+    @extend_schema(
+        summary="Add labours to a job card",
+        description="Add, update, or delete current labour snapshots for a job card's temp car.",
+        tags=["JobCards"],
+    )
     def post(self, request, jobcard_id):
         jobcard = get_object_or_404(JobCard, id=jobcard_id)
 
@@ -542,6 +645,11 @@ class AddLaboursToJobCardView(APIView):
 class FinalizeJobCardView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Finalize a job card",
+        description="Finalize a job card and update inventory based on assigned current parts.",
+        tags=["JobCards"],
+    )
     def post(self, request, jobcard_id):
         """
         POST /api/jobcards/{jobcard_id}/finalize/

@@ -6,8 +6,16 @@ from django.db import IntegrityError, DatabaseError, transaction
 
 from catalog.models.vehicle_models_model import VehilceModel
 from catalog.serializers.vehicle_models_serializers import VehicleModelSerializer
+from drf_spectacular.utils import extend_schema, extend_schema_view
 
 
+@extend_schema_view(
+    get=extend_schema(
+        summary="List all vehicle models",
+        description="Retrieve a list of all vehicle make/model entries.",
+        tags=["VehicleModels"],
+    ),
+)
 class VehicleModelsListView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -29,6 +37,11 @@ class VehicleModelsListView(APIView):
 class VehicleModelsCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Create a vehicle model entry",
+        description="Create a new vehicle make/model entry.",
+        tags=["VehicleModels"],
+    )
     def post(self, request):
         """
         POST /api/vehicleModel/create/
@@ -63,6 +76,11 @@ class VehicleModelsCreateView(APIView):
 class VehicleModelsDetailView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    @extend_schema(
+        summary="Retrieve a vehicle model entry",
+        description="Get detailed information about a specific vehicle make/model entry.",
+        tags=["VehicleModels"],
+    )
     def get(self, request, pk):
         """
         GET /api/vehicleModels/{pk}/
@@ -72,6 +90,11 @@ class VehicleModelsDetailView(APIView):
             VehicleModelSerializer(vehicleModel).data, status=status.HTTP_200_OK
         )
 
+    @extend_schema(
+        summary="Update a vehicle model entry",
+        description="Update all fields of a vehicle make/model entry.",
+        tags=["VehicleModels"],
+    )
     def put(self, request, pk):
         """
         PUT /api/vehicleModels/{pk}/update/
@@ -99,6 +122,11 @@ class VehicleModelsDetailView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    @extend_schema(
+        summary="Partially update a vehicle model entry",
+        description="Update specific fields of a vehicle make/model entry.",
+        tags=["VehicleModels"],
+    )
     def patch(self, request, pk):
         """
         PATCH /api/vehicleModels/{pk}/partial-update/
@@ -128,6 +156,11 @@ class VehicleModelsDetailView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+    @extend_schema(
+        summary="Delete a vehicle model entry",
+        description="Delete a vehicle make/model entry.",
+        tags=["VehicleModels"],
+    )
     def delete(self, request, pk):
         """
         DELETE /api/vehicleModel/{pk}/delete/
