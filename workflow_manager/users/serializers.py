@@ -21,6 +21,7 @@ class UserSerializer(serializers.ModelSerializer):
         write_only=True,
     )
     current_role = serializers.SerializerMethodField(read_only=True)
+    password = serializers.CharField(write_only=True, required=False)
 
     class Meta:
         model = CustomUser
@@ -34,16 +35,25 @@ class UserSerializer(serializers.ModelSerializer):
             "preferences",
             "role",
             "current_role",
+            "password",
         ]
         read_only_fields = ["id"]
 
     def get_current_role(self, obj):
         return obj.get_primary_role()
 
+    def validate(self, attrs):
+        if self.instance is None and not attrs.get("password"):
+            raise serializers.ValidationError({"password": "This field is required."})
+        return attrs
+
     def create(self, validated_data):
         labels_data = validated_data.pop("labels", [])
         role_name = validated_data.pop("role", None)
+        password = validated_data.pop("password")
         user = CustomUser.objects.create_user(**validated_data)
+        user.set_password(password)
+        user.save(update_fields=["password"])
         for lbl in labels_data:
             label_obj, _ = Label.objects.get_or_create(name=lbl["name"])
             user.labels.add(label_obj)
@@ -55,6 +65,7 @@ class UserSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         labels_data = validated_data.pop("labels", None)
         role_name = validated_data.pop("role", None)
+        password = validated_data.pop("password", None)
         if labels_data is not None:
             instance.labels.clear()
             for lbl in labels_data:
@@ -69,5 +80,9 @@ class UserSerializer(serializers.ModelSerializer):
         prefs = validated_data.pop("preferences", None)
         if prefs is not None:
             instance.preferences = prefs
+
+        if password:
+            instance.set_password(password)
+            instance.save(update_fields=["password"])
 
         return super().update(instance, validated_data)
