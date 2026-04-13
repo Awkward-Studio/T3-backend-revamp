@@ -5,6 +5,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.shortcuts import get_object_or_404
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
+from rest_framework.authentication import BasicAuthentication, SessionAuthentication
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -19,6 +20,7 @@ from jobcards.models import JobCard
 from users.models import CustomUser
 from vehicle_management.models import Car, TempCar
 
+from drf_spectacular.utils import extend_schema, extend_schema_view, OpenApiResponse
 
 COLLECTION_ID_MAP = {
     "66e80a830013e7a81f31": "jobcards",
@@ -61,6 +63,10 @@ def _parse_csvish_list(values):
 
 def _safe_dt(value):
     if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
         return None
 
 
@@ -155,10 +161,6 @@ def log_history(request, object_id, object_type, operation_type, changes):
         user_name=user_payload.get("name", ""),
         history=_history_lines(str(object_id), object_type, operation_type, request.user, changes),
     )
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
 
 
 def serialize_user(user):
@@ -305,9 +307,14 @@ def serialize_vehicle_model(item):
     }
 
 
+class CsrfExemptSessionAuthentication(SessionAuthentication):
+    def enforce_csrf(self, request):
+        return
+
+
 @method_decorator(csrf_exempt, name="dispatch")
 class CompatAPIView(APIView):
-    pass
+    authentication_classes = [CsrfExemptSessionAuthentication, BasicAuthentication]
 
 
 class CompatAuthLoginView(CompatAPIView):
@@ -393,10 +400,17 @@ class CompatUserListView(CompatAPIView):
         password = request.data.get("password", "")
         name = request.data.get("name", "").strip()
         role = request.data.get("role")
+        prefs = request.data.get("prefs", request.data.get("preferences"))
 
         if not email or not password:
             return Response(
                 {"error": "email and password are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if prefs is not None and not isinstance(prefs, dict):
+            return Response(
+                {"error": "prefs must be an object"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -411,6 +425,7 @@ class CompatUserListView(CompatAPIView):
             password=password,
             first_name=first_name,
             last_name=last_name,
+            preferences=prefs or {},
         )
         if role:
             user.set_single_role(role)

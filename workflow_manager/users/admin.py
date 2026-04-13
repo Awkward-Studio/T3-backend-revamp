@@ -9,13 +9,13 @@ class CustomUserAdmin(UserAdmin):
 
     fieldsets = UserAdmin.fieldsets + (
         ("Custom Fields", {
-            "fields": ("roles", "labels"),
+            "fields": ("roles", "labels","preferences"),
         }),
     )
 
     add_fieldsets = UserAdmin.add_fieldsets + (
         ("Custom Fields", {
-            "fields": ("roles", "labels"),
+            "fields": ("roles", "labels","preferences"),
         }),
     )
 
