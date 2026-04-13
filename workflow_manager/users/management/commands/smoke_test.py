@@ -11,9 +11,9 @@ class Command(BaseCommand):
         call_command("check")
 
         client = APIClient()
-        # users/urls.py mounts LabelListCreate at: "api/labels/"
+        # users/urls.py mounts LabelListCreate at: "labels/"
         # workflow_manager/urls.py mounts users under: "api/"
-        url = "/api/api/labels/"
+        url = "/api/labels/"
         self.stdout.write(f"Calling smoke endpoint: GET {url}")
 
         resp = client.get(url, format="json")

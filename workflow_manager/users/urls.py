@@ -8,9 +8,9 @@ from .views import (
 
 urlpatterns = [
     # Labels
-    path("api/labels/", LabelListCreate.as_view(), name="label-list"),
-    path("api/labels/<int:pk>/", LabelDetail.as_view(), name="label-detail"),
+    path("labels/", LabelListCreate.as_view(), name="label-list"),
+    path("labels/<int:pk>/", LabelDetail.as_view(), name="label-detail"),
     # Users
-    path("api/users/", UserListCreate.as_view(), name="user-list"),
-    path("api/users/<int:pk>/", UserDetail.as_view(), name="user-detail"),
+    path("users/", UserListCreate.as_view(), name="user-list"),
+    path("users/<int:pk>/", UserDetail.as_view(), name="user-detail"),
 ]

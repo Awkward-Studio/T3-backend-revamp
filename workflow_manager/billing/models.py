@@ -10,12 +10,6 @@ class InvoiceCounter(models.Model):
         ("src", "SRC"),
     ]
 
-    # invoice_type buckets used by the API
-    TYPE_CHOICES = [
-        ("quote", "Quote"),
-        ("proforma", "Proforma"),
-    ]
-
     series = models.CharField(max_length=10, choices=SERIES_CHOICES, unique=True)
     last_number = models.PositiveIntegerField(default=0)
 
@@ -25,19 +19,14 @@ class InvoiceCounter(models.Model):
 
 class Invoice(models.Model):
     SERIES_CHOICES = InvoiceCounter.SERIES_CHOICES
-    TYPE_CHOICES = InvoiceCounter.TYPE_CHOICES
-    CATEGORY_CHOICES = [
-        ("customer", "Customer"),
-        ("insurance", "Insurance"),
-    ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     job_card = models.ForeignKey(
         JobCard, on_delete=models.CASCADE, related_name="invoices"
     )
     invoice_series = models.CharField(max_length=10, choices=SERIES_CHOICES)
-    invoice_type = models.CharField(max_length=20, choices=TYPE_CHOICES)
-    category = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
+    invoice_type = models.CharField(max_length=50)
+    category = models.CharField(max_length=20, blank=True, default="")
     invoice_number = models.PositiveIntegerField()
     invoice_code = models.CharField(max_length=50, blank=True)  # your custom code
     car_number = models.CharField(max_length=50, blank=True)  # your custom code
@@ -52,10 +41,7 @@ class Invoice(models.Model):
         ordering = ["invoice_series", "invoice_type", "invoice_number"]
 
     def __str__(self):
-        return (
-            f"{self.get_invoice_series_display()} {self.get_invoice_type_display()} "
-            f"[{self.category}] #{self.invoice_number}"
-        )
+        return f"{self.invoice_series} {self.invoice_type} [{self.category}] #{self.invoice_number}"
 
     @classmethod
     def _next_number(cls, invoice_series: str) -> int:

@@ -219,7 +219,6 @@ class ProductCsvUploadView(APIView):
                     purchaseLocation=row.get("purchaseLocation") or None,
                     purchaseOrderId=row.get("purchaseOrderId") or None,
                     warrantyPeriod=row.get("warrantyPeriod") or None,
-                    mobis_status=row.get("mobis_status", Product.NON_MOBIS),
                 )
 
                 # Parse dates if provided (expected format: YYYY-MM-DD)

@@ -1,7 +1,7 @@
 import requests
 from requests.auth import HTTPBasicAuth
 
-url = "http://127.0.0.1:8000/api/api/jobcards"
+url = "http://127.0.0.1:8000/api/jobcards"
 
 # data = {
 #     "job_card": "PUT_REAL_JOBCARD_UUID",

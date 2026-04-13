@@ -46,6 +46,8 @@ INSTALLED_APPS = [
     "inventory", 
     "billing", 
     "catalog",
+    "media_store",
+    "auditlog",
     "drf_spectacular"
 ]
 
@@ -126,6 +128,8 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -150,7 +154,11 @@ REST_FRAMEWORK = {
 }
 
 # CORS (useful when Next.js calls this API from another origin)
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+CORS_ALLOW_CREDENTIALS = True
 
 LOGGING = {
     "version": 1,
