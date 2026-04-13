@@ -352,6 +352,27 @@ class CompatAuthMeView(CompatAPIView):
     def get(self, request):
         return Response(serialize_user(request.user))
 
+    def patch(self, request):
+        user = request.user
+        if "name" in request.data:
+            name = request.data.get("name", "").strip()
+            if " " in name:
+                first, last = name.split(" ", 1)
+            else:
+                first, last = name, ""
+            user.first_name = first
+            user.last_name = last
+        if "email" in request.data:
+            user.email = request.data["email"]
+            if not user.username:
+                user.username = request.data["email"]
+        if "prefs" in request.data:
+            user.preferences = request.data["prefs"]
+        if "password" in request.data:
+            user.set_password(request.data["password"])
+        user.save()
+        return Response(serialize_user(user), status=status.HTTP_200_OK)
+
 
 class CompatCurrentUserSessionsView(CompatAPIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -366,6 +387,34 @@ class CompatUserListView(CompatAPIView):
     def get(self, request):
         users = [serialize_user(user) for user in CustomUser.objects.all().order_by("id")]
         return Response(users)
+
+    def post(self, request):
+        email = request.data.get("email", "").strip()
+        password = request.data.get("password", "")
+        name = request.data.get("name", "").strip()
+        role = request.data.get("role")
+
+        if not email or not password:
+            return Response(
+                {"error": "email and password are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if " " in name:
+            first_name, last_name = name.split(" ", 1)
+        else:
+            first_name, last_name = name, ""
+
+        user = CustomUser.objects.create_user(
+            username=email,
+            email=email,
+            password=password,
+            first_name=first_name,
+            last_name=last_name,
+        )
+        if role:
+            user.set_single_role(role)
+        return Response(serialize_user(user), status=status.HTTP_201_CREATED)
 
 
 class CompatHistoryView(CompatAPIView):
