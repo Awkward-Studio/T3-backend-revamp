@@ -17,6 +17,8 @@ class Car(models.Model):
     purpose_of_visit_and_advisors = models.JSONField(default=list, blank=True)
     customer_email = models.EmailField(blank=True)
     calling_status = models.IntegerField(default=0, validators=[MinValueValidator(0)])
+    created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True, null=True, blank=True)
 
     def __str__(self):
         return f"{self.car_number} ({self.car_make} {self.car_model})"
@@ -39,6 +41,8 @@ class TempCar(models.Model):
     # copy‐over of visit/advisor info so you can tweak it in TempCar
     purpose_of_visit_and_advisors = models.JSONField(default=list, blank=True)
     all_job_card_ids = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True, null=True, blank=True)
 
     def __str__(self):
         return f"TempCar for {self.car.car_number} (job {self.job_card_id})"
