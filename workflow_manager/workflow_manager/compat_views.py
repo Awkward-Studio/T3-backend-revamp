@@ -502,9 +502,6 @@ class CompatCarsView(CompatAPIView):
 
     def get(self, request):
         cars = Car.objects.all().order_by("-id")
-        updated_before = _safe_dt(request.query_params.get("updated_before"))
-        if updated_before:
-            cars = cars.filter(updated_at__lte=updated_before)
         return Response(_list_response([serialize_car(car) for car in cars]))
 
     def post(self, request):
