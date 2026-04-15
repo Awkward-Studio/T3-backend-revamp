@@ -7,6 +7,18 @@ from rest_framework.views import APIView
 
 from .models import UploadedAsset
 from .serializers import UploadedAssetSerializer
+from pathlib import Path
+from imagekitio import ImageKit
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+imagekit = ImageKit(
+    private_key=os.environ.get("IMAGEKIT_PRIVATE_KEY")
+)
+
+
 
 
 class AssetUploadBaseView(APIView):
@@ -22,6 +34,16 @@ class AssetUploadBaseView(APIView):
     )
     def post(self, request):
         upload = request.FILES.get("file")
+        # image_data = request.files['image'].read()
+        file_bytes = upload.read()
+
+        response = imagekit.files.upload(
+            file=file_bytes,
+            file_name=upload.name
+        )
+        print("Response URL is", response.url)
+        # print("Upload shit is", upload.read())
+        # return
         if not upload:
             return Response(
                 {"error": "No file provided under 'file'."},
@@ -31,7 +53,7 @@ class AssetUploadBaseView(APIView):
         try:
             asset = UploadedAsset.objects.create(
                 kind=self.asset_kind,
-                file=upload,
+                file_url=response.url,
                 original_name=upload.name,
                 content_type=getattr(upload, "content_type", "") or "",
             )

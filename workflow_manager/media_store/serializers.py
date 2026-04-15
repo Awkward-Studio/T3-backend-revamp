@@ -20,7 +20,7 @@ class UploadedAssetSerializer(serializers.ModelSerializer):
 
     def get_href(self, obj):
         request = self.context.get("request")
-        if not obj.file:
+        if not obj.file_url:
             return None
-        url = obj.file.url
+        url = obj.file_url
         return request.build_absolute_uri(url) if request else url
