@@ -3,3 +3,7 @@ env
 ./backendREADME.md
 venv
 migrations
+__pycache__/
+*.py[cod]
+*.sqlite3
+db.sqlite3
