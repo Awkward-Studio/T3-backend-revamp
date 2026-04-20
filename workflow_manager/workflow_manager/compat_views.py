@@ -13,6 +13,7 @@ from rest_framework.views import APIView
 from auditlog.models import HistoryEntry
 from billing.models import Invoice
 from catalog.models.insurers_model import InsuranceProvider
+from catalog.serializers.insurers_serializers import InsuranceProviderSerializer
 from catalog.models.labour_models import Labour
 from catalog.models.vehicle_models_model import VehilceModel
 from inventory.models import Product
@@ -307,6 +308,29 @@ def serialize_vehicle_model(item):
     }
 
 
+def serialize_insurance_provider(item):
+    return {
+        **_doc_meta(item, "insurance-providers"),
+        "insurer": item.insurer,
+        "address": item.address,
+        "GST": item.gst,
+    }
+
+
+def _normalize_insurance_provider_payload(data):
+    payload = dict(data or {})
+    if "GST" in payload and "gst" not in payload:
+        payload["gst"] = payload["GST"]
+    payload.pop("GST", None)
+    payload.pop("$id", None)
+    payload.pop("$createdAt", None)
+    payload.pop("$updatedAt", None)
+    payload.pop("$permissions", None)
+    payload.pop("$databaseId", None)
+    payload.pop("$collectionId", None)
+    return payload
+
+
 class CsrfExemptSessionAuthentication(SessionAuthentication):
     def enforce_csrf(self, request):
         return
@@ -484,6 +508,7 @@ class CompatDocumentsByIdsView(CompatAPIView):
             "labour": lambda qs: [serialize_labour(item) for item in qs],
             "invoices": lambda qs: [serialize_invoice(item) for item in qs],
             "vehicle-models": lambda qs: [serialize_vehicle_model(item) for item in qs],
+            "insurance-providers": lambda qs: [serialize_insurance_provider(item) for item in qs],
         }
         querysets = {
             "jobcards": JobCard.objects.filter(pk__in=ids),
@@ -493,6 +518,7 @@ class CompatDocumentsByIdsView(CompatAPIView):
             "labour": Labour.objects.filter(pk__in=ids),
             "invoices": Invoice.objects.filter(pk__in=ids),
             "vehicle-models": VehilceModel.objects.filter(pk__in=ids),
+            "insurance-providers": InsuranceProvider.objects.filter(pk__in=ids),
         }
         return Response(serializers[collection_name](querysets[collection_name]), status=status.HTTP_200_OK)
 
@@ -925,16 +951,63 @@ class CompatVehicleModelsView(CompatAPIView):
         return Response(serialize_vehicle_model(item))
 
 
-class CompatPolicyProvidersView(CompatAPIView):
+class CompatInsuranceProvidersView(CompatAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        providers = [
-            {
-                "insurer": item.insurer,
-                "address": item.address,
-                "GST": item.gst,
-            }
-            for item in InsuranceProvider.objects.all().order_by("insurer")
-        ]
-        return Response(providers)
+        providers = [serialize_insurance_provider(item) for item in InsuranceProvider.objects.all().order_by("insurer")]
+        return Response(_list_response(providers))
+
+    def post(self, request):
+        serializer = InsuranceProviderSerializer(data=_normalize_insurance_provider_payload(request.data))
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        provider = serializer.save()
+        log_history(
+            request,
+            provider.pk,
+            "insurance-providers",
+            "created",
+            _creation_changes(serialize_insurance_provider(provider)),
+        )
+        return Response(serialize_insurance_provider(provider), status=status.HTTP_201_CREATED)
+
+
+class CompatInsuranceProviderDetailView(CompatAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, pk):
+        provider = get_object_or_404(InsuranceProvider, id=pk)
+        return Response(serialize_insurance_provider(provider))
+
+    def patch(self, request, pk):
+        provider = get_object_or_404(InsuranceProvider, id=pk)
+        previous = serialize_insurance_provider(provider)
+        serializer = InsuranceProviderSerializer(
+            provider,
+            data=_normalize_insurance_provider_payload(request.data),
+            partial=True,
+        )
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        provider = serializer.save()
+        log_history(
+            request,
+            provider.pk,
+            "insurance-providers",
+            "updated",
+            _update_changes(previous, serialize_insurance_provider(provider)),
+        )
+        return Response(serialize_insurance_provider(provider), status=status.HTTP_200_OK)
+
+    def delete(self, request, pk):
+        provider = get_object_or_404(InsuranceProvider, id=pk)
+        previous = serialize_insurance_provider(provider)
+        provider.delete()
+        log_history(request, pk, "insurance-providers", "deleted", _deletion_changes(previous))
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+CompatPolicyProvidersView = CompatInsuranceProvidersView
