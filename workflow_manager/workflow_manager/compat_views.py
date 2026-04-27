@@ -528,6 +528,9 @@ class CompatCarsView(CompatAPIView):
 
     def get(self, request):
         cars = Car.objects.all().order_by("-id")
+        updated_before = _safe_dt(request.query_params.get("updated_before"))
+        if updated_before:
+            cars = cars.filter(updated_at__lte=updated_before)
         return Response(_list_response([serialize_car(car) for car in cars]))
 
     def post(self, request):
@@ -588,6 +591,8 @@ class CompatCarDetailView(CompatAPIView):
                 setattr(car, target, request.data[source])
                 updated_fields.append(target)
         if updated_fields:
+            if "updated_at" not in updated_fields:
+                updated_fields.append("updated_at")
             car.save(update_fields=updated_fields)
             log_history(request, car.pk, "cars", "updated", _update_changes(previous, serialize_car(car)))
         return Response(serialize_car(car))
@@ -673,24 +678,53 @@ class CompatJobCardsView(CompatAPIView):
 
     def post(self, request):
         temp_car = get_object_or_404(TempCar.objects.select_related("car"), pk=request.data.get("carId"))
-        jobcard = JobCard.objects.create(
+        jobcard_defaults = {
+            "temp_car": temp_car,
+            "diagnosis": request.data.get("diagnosis", []),
+            "send_to_parts_manager": request.data.get("sendToPartsManager", False),
+            "car_number": request.data.get("carNumber", temp_car.car.car_number),
+            "job_card_status": request.data.get("jobCardStatus", 0),
+            "customer_name": request.data.get("customerName", ""),
+            "customer_phone": request.data.get("customerPhone", ""),
+            "customer_address": request.data.get("customerAddress", ""),
+            "customer_email": request.data.get("customerEmail", ""),
+            "images": request.data.get("images", []),
+            "car_fuel": request.data.get("carFuel", ""),
+            "bat_odometer": request.data.get("carOdometer", ""),
+            "purpose_of_visit": request.data.get("purposeOfVisit", ""),
+            "job_card_pdf": request.data.get("jobCardPDF", ""),
+            "service_advisor_id": request.data.get("serviceAdvisorID", ""),
+        }
+        jobcard, created = JobCard.objects.get_or_create(
             car_id=str(temp_car.pk),
-            temp_car=temp_car,
-            diagnosis=request.data.get("diagnosis", []),
-            send_to_parts_manager=request.data.get("sendToPartsManager", False),
-            car_number=request.data.get("carNumber", temp_car.car.car_number),
-            job_card_status=request.data.get("jobCardStatus", 0),
-            customer_name=request.data.get("customerName", ""),
-            customer_phone=request.data.get("customerPhone", ""),
-            customer_address=request.data.get("customerAddress", ""),
-            customer_email=request.data.get("customerEmail", ""),
-            images=request.data.get("images", []),
-            car_fuel=request.data.get("carFuel", ""),
-            bat_odometer=request.data.get("carOdometer", ""),
-            purpose_of_visit=request.data.get("purposeOfVisit", ""),
-            job_card_pdf=request.data.get("jobCardPDF", ""),
-            service_advisor_id=request.data.get("serviceAdvisorID", ""),
+            defaults=jobcard_defaults,
         )
+
+        if not created:
+            temp_car.car_status = 1
+            temp_car.job_card_id = str(jobcard.pk)
+            if str(jobcard.pk) not in temp_car.all_job_card_ids:
+                temp_car.all_job_card_ids = [*temp_car.all_job_card_ids, str(jobcard.pk)]
+            temp_car.save(update_fields=["car_status", "job_card_id", "all_job_card_ids"])
+
+            car = temp_car.car
+            if str(jobcard.pk) not in car.all_job_cards:
+                car.all_job_cards = [*car.all_job_cards, str(jobcard.pk)]
+            car.customer_name = jobcard.customer_name
+            car.customer_phone = jobcard.customer_phone
+            car.customer_address = jobcard.customer_address or ""
+            car.customer_email = jobcard.customer_email or ""
+            car.save(
+                update_fields=[
+                    "all_job_cards",
+                    "customer_name",
+                    "customer_phone",
+                    "customer_address",
+                    "customer_email",
+                ]
+            )
+            return Response(serialize_jobcard(jobcard), status=status.HTTP_200_OK)
+
         temp_car.car_status = 1
         temp_car.job_card_id = str(jobcard.pk)
         temp_car.all_job_card_ids = [*temp_car.all_job_card_ids, str(jobcard.pk)]

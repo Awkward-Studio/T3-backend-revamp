@@ -17,6 +17,8 @@ class Car(models.Model):
     purpose_of_visit_and_advisors = models.JSONField(default=list, blank=True)
     customer_email = models.EmailField(blank=True)
     calling_status = models.IntegerField(default=0, validators=[MinValueValidator(0)])
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"{self.car_number} ({self.car_make} {self.car_model})"
