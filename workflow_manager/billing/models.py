@@ -11,7 +11,7 @@ class InvoiceCounter(models.Model):
     ]
 
     series = models.CharField(max_length=10, choices=SERIES_CHOICES, unique=True)
-    last_number = models.PositiveIntegerField(default=0)
+    last_number = models.PositiveIntegerField(default=1000)
 
     def __str__(self):
         return f"{self.series} → {self.last_number}"
@@ -43,6 +43,46 @@ class Invoice(models.Model):
     def __str__(self):
         return f"{self.invoice_series} {self.invoice_type} [{self.category}] #{self.invoice_number}"
 
+    @staticmethod
+    def _normalized_label(value) -> str:
+        return " ".join(str(value or "").replace("-", " ").split()).strip().lower()
+
+    @classmethod
+    def _customer_invoice_types(cls) -> set:
+        return {"quote", "pro forma invoice", "tax invoice"}
+
+    @classmethod
+    def find_existing_invoice(
+        cls,
+        job_card: JobCard,
+        invoice_series: str,
+        invoice_type: str,
+        category: str = None,
+    ):
+        """
+        Resolve the canonical invoice for a job card.
+
+        Quote, Pro-Forma Invoice, and Tax Invoice are treated as one customer
+        invoice family so any of them can find the same existing record.
+        """
+        normalized_type = cls._normalized_label(invoice_type)
+        normalized_category = cls._normalized_label(category)
+        qs = cls.objects.filter(job_card=job_card, invoice_series=invoice_series)
+
+        if normalized_type in cls._customer_invoice_types() or normalized_category in {"", "customer"}:
+            candidate_categories = ["", "Customer", "customer"]
+            customer_qs = qs.filter(category__in=candidate_categories).order_by("created_at", "invoice_number")
+            for invoice in customer_qs:
+                if cls._normalized_label(invoice.invoice_type) in cls._customer_invoice_types():
+                    return invoice
+            return None
+
+        exact_qs = qs.filter(category=category or "").order_by("created_at", "invoice_number")
+        for invoice in exact_qs:
+            if cls._normalized_label(invoice.invoice_type) == normalized_type:
+                return invoice
+        return None
+
     @classmethod
     def _next_number(cls, invoice_series: str) -> int:
         """
@@ -69,19 +109,26 @@ class Invoice(models.Model):
         If an invoice of the same spec already exists on this job_card,
         return its number; otherwise allocate a fresh one.
         """
-        # The API stores quote-category as an empty string (see CreateInvoiceView).
-        if invoice_type == "quote":
+        normalized_type = cls._normalized_label(invoice_type)
+        normalized_category = cls._normalized_label(category)
+
+        # Customer quote/pro-forma/tax invoices share the same logical invoice.
+        if normalized_type in cls._customer_invoice_types() or normalized_category in {"", "customer"}:
             category = ""
         else:
             category = category or ""
-
-        existing_qs = cls.objects.filter(
+        print("job card", job_card)
+        print("invoice type is", invoice_type)
+        print("Invoice series is", invoice_series)
+        print("cls", cls)
+        existing = cls.find_existing_invoice(
             job_card=job_card,
             invoice_series=invoice_series,
             invoice_type=invoice_type,
             category=category,
         )
-        existing = existing_qs.first()
+        existing_qs = cls.objects.filter(pk=existing.pk) if existing else cls.objects.none()
+        print("existing", existing_qs)
         if existing:
             return existing.invoice_number
 

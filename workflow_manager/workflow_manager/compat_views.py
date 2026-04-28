@@ -5,6 +5,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.shortcuts import get_object_or_404
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
+from django.db import IntegrityError
 from rest_framework.authentication import BasicAuthentication, SessionAuthentication
 from rest_framework import permissions, status
 from rest_framework.response import Response
@@ -880,18 +881,75 @@ class CompatInvoicesView(CompatAPIView):
 
     def post(self, request):
         jobcard = get_object_or_404(JobCard, pk=request.data.get("jobCardId"))
-        invoice = Invoice.objects.create(
+
+        invoice_series = request.data.get("invoiceSeries", "")
+        invoice_type = request.data.get("invoiceType", "")
+        category = request.data.get("insuranceInvoiceType", "") or ""
+
+        # Reuse the same logical invoice across quote / pro-forma / tax invoice requests.
+        existing = Invoice.find_existing_invoice(
             job_card=jobcard,
-            invoice_series=request.data.get("invoiceSeries", ""),
-            invoice_type=request.data.get("invoiceType", ""),
-            category=request.data.get("insuranceInvoiceType", "") or "",
-            invoice_number=request.data.get("invoiceNumber"),
-            invoice_code=request.data.get("invoiceCode", ""),
-            car_number=request.data.get("carNumber", ""),
-            is_updated=request.data.get("isUpdatedInvoice", False),
-            is_insurance_invoice=request.data.get("isInsuranceInvoice", False),
-            invoice_url=request.data.get("invoiceUrl", ""),
+            invoice_series=invoice_series,
+            invoice_type=invoice_type,
+            category=category,
         )
+
+        if existing:
+            previous = serialize_invoice(existing)
+            updated = False
+            # update only fields that can change on regenerate
+            if "invoiceUrl" in request.data and request.data.get("invoiceUrl") != existing.invoice_url:
+                existing.invoice_url = request.data.get("invoiceUrl")
+                updated = True
+            if "isUpdatedInvoice" in request.data:
+                val = request.data.get("isUpdatedInvoice", False)
+                if existing.is_updated != val:
+                    existing.is_updated = val
+                    updated = True
+            if "invoiceCode" in request.data and request.data.get("invoiceCode") != existing.invoice_code:
+                existing.invoice_code = request.data.get("invoiceCode")
+                updated = True
+            if "isInsuranceInvoice" in request.data:
+                val = request.data.get("isInsuranceInvoice", False)
+                if existing.is_insurance_invoice != val:
+                    existing.is_insurance_invoice = val
+                    updated = True
+            if "carNumber" in request.data and request.data.get("carNumber") != existing.car_number:
+                existing.car_number = request.data.get("carNumber")
+                updated = True
+
+            if updated:
+                existing.save()
+                log_history(request, existing.pk, "invoice", "updated", _update_changes(previous, serialize_invoice(existing)))
+
+            return Response(serialize_invoice(existing), status=status.HTTP_200_OK)
+
+        # Otherwise create; handle race where another process may create same invoice concurrently
+        try:
+            invoice = Invoice.objects.create(
+                job_card=jobcard,
+                invoice_series=invoice_series,
+                invoice_type=invoice_type,
+                category=category,
+                invoice_number=request.data.get("invoiceNumber"),
+                invoice_code=request.data.get("invoiceCode", ""),
+                car_number=request.data.get("carNumber", ""),
+                is_updated=request.data.get("isUpdatedInvoice", False),
+                is_insurance_invoice=request.data.get("isInsuranceInvoice", False),
+                invoice_url=request.data.get("invoiceUrl", ""),
+            )
+        except IntegrityError:
+            # Another process created it concurrently — return that one instead
+            existing = Invoice.find_existing_invoice(
+                job_card=jobcard,
+                invoice_series=invoice_series,
+                invoice_type=invoice_type,
+                category=category,
+            )
+            if existing:
+                return Response(serialize_invoice(existing), status=status.HTTP_200_OK)
+            raise
+
         log_history(request, invoice.pk, "invoice", "created", _creation_changes(serialize_invoice(invoice)))
         return Response(serialize_invoice(invoice), status=status.HTTP_201_CREATED)
 

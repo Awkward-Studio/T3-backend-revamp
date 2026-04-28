@@ -2,6 +2,17 @@ from rest_framework import serializers
 from .models import Invoice
 
 
+class InvoiceUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Invoice
+        fields = [
+            "invoice_url",
+            "is_updated",
+            "invoice_code",
+            "is_insurance_invoice",
+            "car_number",
+        ]
+
 class InvoiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Invoice
