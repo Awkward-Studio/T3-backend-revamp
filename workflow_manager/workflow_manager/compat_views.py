@@ -614,12 +614,16 @@ class CompatTempCarsView(CompatAPIView):
 
     def post(self, request):
         car = get_object_or_404(Car, pk=request.data.get("carsTableId"))
+        # Keep temp-car history pointers in sync with the parent car unless explicitly provided.
+        all_job_card_ids = request.data.get("allJobCardIds")
+        if all_job_card_ids is None:
+            all_job_card_ids = car.all_job_cards or []
         temp_car = TempCar.objects.create(
             car=car,
             car_status=request.data.get("carStatus", 0),
             cars_table_id=request.data.get("carsTableId", str(car.pk)),
             purpose_of_visit_and_advisors=request.data.get("purposeOfVisitAndAdvisors", []),
-            all_job_card_ids=request.data.get("allJobCardIds", []),
+            all_job_card_ids=all_job_card_ids,
             job_card_id=request.data.get("jobCardId", ""),
         )
         log_history(request, temp_car.pk, "temp-cars", "created", _creation_changes(serialize_temp_car(temp_car)))
@@ -874,9 +878,9 @@ class CompatInvoicesView(CompatAPIView):
         if created_lte:
             qs = qs.filter(created_at__lte=created_lte)
         if invoice_type:
-            qs = qs.filter(invoice_type=invoice_type)
+            qs = qs.filter(invoice_type__iexact=invoice_type)
         if invoice_series:
-            qs = qs.filter(invoice_series=invoice_series)
+            qs = qs.filter(invoice_series__iexact=invoice_series)
         return Response(_list_response([serialize_invoice(invoice) for invoice in qs]))
 
     def post(self, request):
