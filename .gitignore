@@ -5,4 +5,5 @@ venv
 migrations
 media
 *.pyc
-db.sqlite3
+*.sqlite3
+*.sqlite3.bak
