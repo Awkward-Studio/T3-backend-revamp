@@ -3,6 +3,7 @@ import json
 
 from django.contrib.auth import authenticate, login, logout
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from django.db import IntegrityError
@@ -1025,7 +1026,7 @@ class CompatInvoicesView(CompatAPIView):
                 except StockError as exc:
                     return Response({"error": exc.message}, status=exc.status_code)
                 if movements:
-                    existing.inventory_consumed_at = jobcard.inventory_consumed_at
+                    existing.inventory_consumed_at = timezone.now()
                     existing.save(update_fields=["inventory_consumed_at"])
 
             return Response(serialize_invoice(existing), status=status.HTTP_200_OK)
@@ -1063,7 +1064,7 @@ class CompatInvoicesView(CompatAPIView):
                 invoice.delete()
                 return Response({"error": exc.message}, status=exc.status_code)
             if movements:
-                invoice.inventory_consumed_at = jobcard.inventory_consumed_at
+                invoice.inventory_consumed_at = timezone.now()
                 invoice.save(update_fields=["inventory_consumed_at"])
 
         log_history(request, invoice.pk, "invoice", "created", _creation_changes(serialize_invoice(invoice)))
