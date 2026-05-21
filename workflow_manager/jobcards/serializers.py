@@ -43,10 +43,19 @@ class JobCardSerializer(serializers.ModelSerializer):
             "service_advisor_id",
             "observation_remarks",
             "calling_status",
+            "inventory_consumed_at",
+            "inventory_consumed_by",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "job_card_number", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "job_card_number",
+            "inventory_consumed_at",
+            "inventory_consumed_by",
+            "created_at",
+            "updated_at",
+        ]
 
     @staticmethod
     def _to_number(value):
@@ -94,8 +103,15 @@ class JobCardSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         data = super().to_representation(instance)
 
-        # Parse parts/labour items (Appwrite often stores these as JSON strings)
-        parts_items = self._parse_json_items(data.get("parts") or [])
+        current_parts = list(instance.current_parts.all())
+        if current_parts:
+            parts_value = CurrentPartSerializer(current_parts, many=True).data
+            parts_items = parts_value
+        else:
+            parts_value = data.get("parts") or []
+            parts_items = self._parse_json_items(parts_value)
+
+        # Parse labour items (Appwrite often stores these as JSON strings)
         labour_items = self._parse_json_items(data.get("labour") or [])
 
         parts_total_pre_tax = self._sum_amount(parts_items, "subTotal", "sub_total", "subTotalCust", "sub_total_cust")
@@ -128,7 +144,8 @@ class JobCardSerializer(serializers.ModelSerializer):
             "customerPhone": data.get("customer_phone"),
             "customerAddress": data.get("customer_address"),
             "customerEmail": data.get("customer_email"),
-            "parts": data.get("parts") or [],
+            "parts": parts_value,
+            "currentParts": parts_value,
             "labour": data.get("labour") or [],
             "images": data.get("images") or [],
             "observationRemarks": data.get("observation_remarks") or "",
@@ -152,6 +169,8 @@ class JobCardSerializer(serializers.ModelSerializer):
             "totalRoundedOffAmount": total_rounded,
             "roundOffValue": round_off_value,
             "taxes": data.get("taxes") or [],
+            "inventoryConsumedAt": data.get("inventory_consumed_at"),
+            "inventoryConsumedBy": data.get("inventory_consumed_by"),
         }
 
         # Omit optional fields when null-ish (Appwrite-style optional fields)

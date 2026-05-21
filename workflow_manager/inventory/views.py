@@ -7,8 +7,9 @@ import io
 from datetime import datetime
 from users.permissions import IsPartsOrAdmin
 
-from .models import Product
+from .models import InventoryMovement, Product
 from .serializers import (
+    InventoryMovementSerializer,
     ProductListSerializer,
     ProductCreateSerializer,
     ProductDetailSerializer,
@@ -241,3 +242,28 @@ class ProductCsvUploadView(APIView):
             {"created_products": created_products, "errors": errors},
             status=status.HTTP_200_OK,
         )
+
+
+class InventoryMovementListView(APIView):
+    permission_classes = [IsPartsOrAdmin]
+
+    @extend_schema(
+        summary="List inventory movements",
+        description="Retrieve stock movement history, optionally filtered by product or job_card.",
+        tags=["Inventory"],
+    )
+    def get(self, request):
+        movements = InventoryMovement.objects.select_related(
+            "product", "job_card", "current_part", "invoice"
+        )
+
+        product_id = request.GET.get("product")
+        if product_id:
+            movements = movements.filter(product_id=product_id)
+
+        job_card_id = request.GET.get("job_card")
+        if job_card_id:
+            movements = movements.filter(job_card_id=job_card_id)
+
+        serializer = InventoryMovementSerializer(movements, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)

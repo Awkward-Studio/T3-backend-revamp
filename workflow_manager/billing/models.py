@@ -32,6 +32,7 @@ class Invoice(models.Model):
     car_number = models.CharField(max_length=50, blank=True)  # your custom code
     is_updated = models.BooleanField(default=False)  # parallels your isUpdatedInvoice
     is_insurance_invoice = models.BooleanField(default=False)
+    inventory_consumed_at = models.DateTimeField(blank=True, null=True)
     invoice_url = models.URLField()
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

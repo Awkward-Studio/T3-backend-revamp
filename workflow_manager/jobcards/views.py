@@ -3,8 +3,9 @@ from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from django.db import IntegrityError, DatabaseError
+from django.db import IntegrityError, DatabaseError, transaction
 from users.permissions import IsServiceOrAdmin
+from inventory.services import StockError, consume_jobcard_inventory
 
 from .models import JobCard, CurrentPart, CurrentLabour
 from .serializers import (
@@ -488,21 +489,36 @@ class AddPartsToJobCardView(APIView):
 
         # 2) incoming parts payload
         parts = request.data.get("parts", [])
+        if not isinstance(parts, list):
+            return Response(
+                {"error": "parts must be a list"}, status=status.HTTP_400_BAD_REQUEST
+            )
+        if jobcard.inventory_consumed_at:
+            return Response(
+                {"error": "Cannot modify parts after inventory has been consumed."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        # 3) delete any parts removed on the client
-        existing = CurrentPart.objects.filter(job_card=jobcard)
-        received = {p["product_id"] for p in parts}
-        to_delete = existing.exclude(product_id__in=received)
-        to_delete.delete()
-
-        added_or_updated = []
-        http_code = status.HTTP_200_OK
-
+        prepared_parts = []
         for p in parts:
             pid = p.get("product_id")
-            qty = int(p.get("quantity", 1))
-
-            # validate master product exists
+            if not pid:
+                return Response(
+                    {"error": "product_id is required for each part"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                qty = int(p.get("quantity", 1))
+            except (TypeError, ValueError):
+                return Response(
+                    {"error": f"Invalid quantity for product {pid}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if qty <= 0:
+                return Response(
+                    {"error": f"Quantity must be greater than zero for product {pid}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             try:
                 product = Product.objects.get(id=pid)
             except Product.DoesNotExist:
@@ -510,62 +526,75 @@ class AddPartsToJobCardView(APIView):
                     {"error": f"Product {pid} not found"},
                     status=status.HTTP_404_NOT_FOUND,
                 )
+            prepared_parts.append((p, pid, qty, product))
 
+        # 3) delete any parts removed on the client
+        added_or_updated = []
+        http_code = status.HTTP_200_OK
+
+        try:
+            with transaction.atomic():
+                existing = CurrentPart.objects.filter(job_card=jobcard)
+                received = [pid for _, pid, _, _ in prepared_parts]
+                existing.exclude(product_id__in=received).delete()
+
+                for p, pid, qty, product in prepared_parts:
             # create or update snapshot
-            cp, created = CurrentPart.objects.get_or_create(
-                job_card=jobcard, product=product, defaults={}
-            )
+                    cp = CurrentPart.objects.filter(
+                        job_card=jobcard, product=product
+                    ).first()
+                    created = cp is None
+                    if created:
+                        cp = CurrentPart(job_card=jobcard, product=product)
 
-            # pull in all snapshot fields
-            cp.part_id = str(product.id)
-            cp.part_name = product.name
-            cp.part_number = product.sku or ""
-            cp.hsn = product.hsn or ""
-            cp.quantity = qty
+                    # pull in all snapshot fields
+                    cp.part_id = str(product.id)
+                    cp.part_name = product.name
+                    cp.part_number = product.sku or ""
+                    cp.hsn = product.hsn or ""
+                    cp.quantity = qty
+                    cp.mrp = p.get("mrp", product.mrp or product.price)
+                    cp.sub_total = p.get("sub_total", product.price * qty)
+                    cp.total_tax = p.get("total_tax", 0)
+                    cp.amount = p.get("amount", product.price * qty)
+                    cp.gst = p.get("gst", product.gst or 0)
+                    cp.cgst = p.get("cgst", product.cgst or 0)
+                    cp.sgst = p.get("sgst", product.sgst or 0)
 
             # if you’re providing the tax/price breakdown in the payload, trust it:
-            for fld in (
-                "mrp",
-                "discount_percentage",
-                "discounted_subtotal",
-                "discount_amount",
-                "insurance_percentage",
-                "insurance_subtotal",
-                "insurance_amount",
-                "sub_total",
-                "total_tax",
-                "amount",
-                "gst",
-                "cgst",
-                "sgst",
-                "cgst_amount",
-                "sgst_amount",
-                "customer_amount",
-                "customer_sub_total",
-                "customer_cgst_amount",
-                "customer_sgst_amount",
-                "customer_discount_amount",
-                "customer_total_tax",
-                "insurance_sub_total",
-                "insurance_cgst_amount",
-                "insurance_sgst_amount",
-                "insurance_total_tax",
-                "insurance_discount_amount",
-            ):
-                if fld in p:
-                    setattr(cp, fld, p[fld])
+                    for fld in (
+                        "discount_percentage",
+                        "discounted_subtotal",
+                        "discount_amount",
+                        "insurance_percentage",
+                        "insurance_subtotal",
+                        "insurance_amount",
+                        "cgst_amount",
+                        "sgst_amount",
+                        "customer_amount",
+                        "customer_sub_total",
+                        "customer_cgst_amount",
+                        "customer_sgst_amount",
+                        "customer_discount_amount",
+                        "customer_total_tax",
+                        "insurance_sub_total",
+                        "insurance_cgst_amount",
+                        "insurance_sgst_amount",
+                        "insurance_total_tax",
+                        "insurance_discount_amount",
+                    ):
+                        if fld in p:
+                            setattr(cp, fld, p[fld])
 
-            try:
-                cp.save()
-            except DatabaseError:
-                return Response(
-                    {"error": "Database error saving part."},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
-
-            added_or_updated.append(CurrentPartSerializer(cp).data)
-            http_code = (
-                status.HTTP_201_CREATED if created else status.HTTP_204_NO_CONTENT
+                    cp.save()
+                    added_or_updated.append(CurrentPartSerializer(cp).data)
+                    http_code = (
+                        status.HTTP_201_CREATED if created else status.HTTP_200_OK
+                    )
+        except DatabaseError:
+            return Response(
+                {"error": "Database error saving parts."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
         return Response({"added_or_updated_parts": added_or_updated}, status=http_code)
@@ -679,29 +708,20 @@ class FinalizeJobCardView(APIView):
         """
         jobcard = get_object_or_404(JobCard, id=jobcard_id)
 
-        # Deduct quantities from inventory for each CurrentPart
-        for cp in jobcard.current_parts.all():
-            product = cp.product
-            if product.quantity >= cp.quantity:
-                product.quantity -= cp.quantity
-                try:
-                    product.save()
-                except DatabaseError:
-                    return Response(
-                        {"error": f"Failed to update stock for {product.name}"},
-                        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    )
-            else:
-                return Response(
-                    {"error": f"Not enough stock for {product.name}"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-        # Mark the JobCard as finalized (e.g. status code 4 = Completed)
-        jobcard.job_card_status = 4
-        jobcard.save()
+        try:
+            movements = consume_jobcard_inventory(jobcard)
+        except StockError as exc:
+            return Response({"error": exc.message}, status=exc.status_code)
+        except DatabaseError:
+            return Response(
+                {"error": "Unable to finalize job card right now."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
         return Response(
-            {"message": "JobCard finalized and inventory updated."},
+            {
+                "message": "JobCard finalized and inventory updated.",
+                "inventory_movements": len(movements),
+            },
             status=status.HTTP_200_OK,
         )

@@ -6,6 +6,7 @@ from .views import (
     ProductUpdateView,
     ProductDeleteView,
     ProductCsvUploadView,
+    InventoryMovementListView,
 )
 
 urlpatterns = [
@@ -22,5 +23,10 @@ urlpatterns = [
         "products/upload-products-csv/",
         ProductCsvUploadView.as_view(),
         name="upload_products_csv",
+    ),
+    path(
+        "inventory/movements/",
+        InventoryMovementListView.as_view(),
+        name="inventory-movement-list",
     ),
 ]

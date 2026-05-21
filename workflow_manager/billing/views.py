@@ -3,12 +3,40 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, permissions
 from django.db import transaction, IntegrityError, DatabaseError
+from django.utils import timezone
 from rest_framework.exceptions import NotFound
 from jobcards.models import JobCard
+from inventory.services import (
+    StockError,
+    consume_jobcard_inventory,
+    invoice_consumes_inventory,
+)
 from users.permissions import IsBillerOrAdmin
 from .models import Invoice
 from .serializers import InvoiceSerializer
 from drf_spectacular.utils import extend_schema, extend_schema_view
+
+
+def normalize_invoice_type(invoice_type):
+    value = str(invoice_type or "").strip().lower()
+    value = value.replace("-", " ").replace("_", " ")
+    if value == "quote":
+        return "quote"
+    if value in {"proforma", "pro forma", "pro forma invoice", "proforma invoice"}:
+        return "pro forma invoice"
+    if value in {"tax", "tax invoice"}:
+        return "tax invoice"
+    return str(invoice_type or "").strip()
+
+
+def normalize_series(series):
+    return str(series or "").strip().lower()
+
+
+def normalize_category(category, invoice_type):
+    if normalize_invoice_type(invoice_type) == "quote":
+        return ""
+    return str(category or "").strip().lower()
 
 
 # @TODO: use serializers
@@ -23,9 +51,9 @@ class GetNextInvoiceNumberView(APIView):
     def get(self, request, jobcard_id):
 
         jobcard = get_object_or_404(JobCard, id=jobcard_id)
-        invoice_series = request.query_params.get("invoice_series")
-        inv_type = request.query_params.get("invoice_type")
-        category = request.query_params.get("category")
+        invoice_series = normalize_series(request.query_params.get("invoice_series"))
+        inv_type = normalize_invoice_type(request.query_params.get("invoice_type"))
+        category = normalize_category(request.query_params.get("category"), inv_type)
 
         if not invoice_series or not inv_type:
             return Response(
@@ -93,9 +121,9 @@ class CreateInvoiceView(APIView):
             )
 
         jobcard = get_object_or_404(JobCard, id=data["job_card"])
-        invoice_series = data["invoice_series"]
-        inv_type = data["invoice_type"]
-        category = data.get("category") if inv_type != "quote" else None
+        invoice_series = normalize_series(data["invoice_series"])
+        inv_type = normalize_invoice_type(data["invoice_type"])
+        category = normalize_category(data.get("category"), inv_type)
         number = data["invoice_number"]
         if not number:
             return Response(
@@ -113,13 +141,22 @@ class CreateInvoiceView(APIView):
                     invoice_number=number,
                     invoice_code=data.get("invoice_code", ""),
                     is_updated=data.get("is_updated", False),
+                    is_insurance_invoice=data.get("is_insurance_invoice", False),
+                    car_number=data.get("car_number", jobcard.car_number),
                     invoice_url=data["invoice_url"],
                 )
+                if invoice_consumes_inventory(inv_type):
+                    movements = consume_jobcard_inventory(jobcard, invoice=inv)
+                    if movements:
+                        inv.inventory_consumed_at = timezone.now()
+                        inv.save(update_fields=["inventory_consumed_at", "updated_at"])
         except IntegrityError as ie:
             return Response(
                 {"error": "Integrity error saving invoice: " + str(ie)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except StockError as exc:
+            return Response({"error": exc.message}, status=exc.status_code)
         except DatabaseError as db_err:
             return Response(
                 {"error": "Database error saving invoice: " + str(db_err)},

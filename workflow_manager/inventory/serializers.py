@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Product
+from .models import InventoryMovement, Product
 
 
 class ProductListSerializer(serializers.ModelSerializer):
@@ -118,4 +118,32 @@ class ProductUpdateSerializer(serializers.ModelSerializer):
             # "mobis_status",
             "created_at",
             "updated_at",
+        ]
+
+
+class InventoryMovementSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source="product.name", read_only=True)
+    job_card_number = serializers.IntegerField(
+        source="job_card.job_card_number", read_only=True
+    )
+    invoice_code = serializers.CharField(source="invoice.invoice_code", read_only=True)
+
+    class Meta:
+        model = InventoryMovement
+        fields = [
+            "id",
+            "product",
+            "product_name",
+            "job_card",
+            "job_card_number",
+            "current_part",
+            "invoice",
+            "invoice_code",
+            "movement_type",
+            "quantity",
+            "quantity_delta",
+            "before_quantity",
+            "after_quantity",
+            "note",
+            "created_at",
         ]

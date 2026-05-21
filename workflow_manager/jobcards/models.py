@@ -76,6 +76,14 @@ class JobCard(models.Model):
     observation_remarks = models.TextField(blank=True, null=True)
 
     calling_status = models.IntegerField(default=0)
+    inventory_consumed_at = models.DateTimeField(blank=True, null=True)
+    inventory_consumed_by = models.ForeignKey(
+        "billing.Invoice",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="inventory_consumed_jobcards",
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -202,7 +210,7 @@ class CurrentPart(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.part_name} x{self.quantity} on JobCard {self.job_card.card_id}"
+        return f"{self.part_name} x{self.quantity} on JobCard {self.job_card.car_id}"
 
 
 class CurrentLabour(models.Model):

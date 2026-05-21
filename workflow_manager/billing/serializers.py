@@ -28,8 +28,15 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "invoice_number",
             "invoice_code",
             "is_updated",
+            "inventory_consumed_at",
             "invoice_url",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "invoice_number", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "invoice_number",
+            "inventory_consumed_at",
+            "created_at",
+            "updated_at",
+        ]

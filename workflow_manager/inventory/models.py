@@ -49,3 +49,50 @@ class Product(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class InventoryMovement(models.Model):
+    SALE = "sale"
+    ADJUSTMENT = "adjustment"
+
+    MOVEMENT_TYPE_CHOICES = [
+        (SALE, "Sale"),
+        (ADJUSTMENT, "Adjustment"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    product = models.ForeignKey(
+        Product, on_delete=models.PROTECT, related_name="inventory_movements"
+    )
+    job_card = models.ForeignKey(
+        "jobcards.JobCard",
+        on_delete=models.PROTECT,
+        related_name="inventory_movements",
+    )
+    current_part = models.ForeignKey(
+        "jobcards.CurrentPart",
+        on_delete=models.PROTECT,
+        related_name="inventory_movements",
+    )
+    invoice = models.ForeignKey(
+        "billing.Invoice",
+        on_delete=models.PROTECT,
+        related_name="inventory_movements",
+        null=True,
+        blank=True,
+    )
+    movement_type = models.CharField(
+        max_length=20, choices=MOVEMENT_TYPE_CHOICES, default=SALE
+    )
+    quantity = models.PositiveIntegerField()
+    quantity_delta = models.IntegerField()
+    before_quantity = models.PositiveIntegerField()
+    after_quantity = models.PositiveIntegerField()
+    note = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.product} {self.quantity_delta} on {self.job_card_id}"
