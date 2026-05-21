@@ -13,12 +13,14 @@ from rest_framework.views import APIView
 
 from auditlog.models import HistoryEntry
 from billing.models import Invoice
+from inventory.services import StockError, consume_jobcard_inventory, invoice_consumes_inventory
 from catalog.models.insurers_model import InsuranceProvider
 from catalog.serializers.insurers_serializers import InsuranceProviderSerializer
 from catalog.models.labour_models import Labour
 from catalog.models.vehicle_models_model import VehilceModel
 from inventory.models import Product
-from jobcards.models import JobCard
+from jobcards.models import CurrentPart, JobCard
+from jobcards.services import JobCardPartError, save_jobcard_parts
 from users.models import CustomUser
 from vehicle_management.models import Car, TempCar
 
@@ -220,6 +222,12 @@ def serialize_temp_car(temp_car):
 
 
 def serialize_jobcard(jobcard):
+    current_parts = list(jobcard.current_parts.select_related("product").all())
+    parts_value = (
+        [serialize_current_part(item) for item in current_parts]
+        if current_parts
+        else jobcard.parts or []
+    )
     return {
         **_doc_meta(jobcard, "jobcards"),
         "serviceAdvisorID": jobcard.service_advisor_id,
@@ -232,7 +240,8 @@ def serialize_jobcard(jobcard):
         "customerPhone": jobcard.customer_phone,
         "customerAddress": jobcard.customer_address,
         "customerEmail": jobcard.customer_email,
-        "parts": jobcard.parts or [],
+        "parts": parts_value,
+        "currentParts": parts_value,
         "labour": jobcard.labour or [],
         "images": jobcard.images or [],
         "observationRemarks": jobcard.observation_remarks or "",
@@ -267,6 +276,46 @@ def serialize_product(product):
         "itemCode": product.itemCode,
         "itemLocation": product.itemLocation,
         "vendorName": product.vendorName,
+    }
+
+
+def serialize_current_part(current_part):
+    product_quantity = getattr(current_part.product, "quantity", None)
+    return {
+        "$id": str(current_part.id),
+        "partId": str(current_part.product_id),
+        "partName": current_part.part_name,
+        "partNumber": current_part.part_number,
+        "mrp": float(current_part.mrp or 0),
+        "gst": float(current_part.gst or 0),
+        "hsn": current_part.hsn or "",
+        "cgst": float(current_part.cgst or 0),
+        "sgst": float(current_part.sgst or 0),
+        "quantity": current_part.quantity,
+        "availableStock": product_quantity,
+        "subTotal": float(current_part.sub_total or 0),
+        "cgstAmt": float(current_part.cgst_amount or 0),
+        "sgstAmt": float(current_part.sgst_amount or 0),
+        "totalTax": float(current_part.total_tax or 0),
+        "amount": float(current_part.amount or 0),
+        "discountPercentage": float(current_part.discount_percentage or 0),
+        "discountedSubTotal": float(current_part.discounted_subtotal or 0),
+        "discountAmt": float(current_part.discount_amount or 0),
+        "insurancePercentage": float(current_part.insurance_percentage or 0),
+        "insuranceAmt": float(current_part.insurance_amount or 0),
+        "customerAmt": float(current_part.customer_amount or 0),
+        "amountCust": float(current_part.customer_amount or 0),
+        "subTotalCust": float(current_part.customer_sub_total or 0),
+        "cgstAmtCust": float(current_part.customer_cgst_amount or 0),
+        "sgstAmtCust": float(current_part.customer_sgst_amount or 0),
+        "discountAmtCust": float(current_part.customer_discount_amount or 0),
+        "totalTaxCust": float(current_part.customer_total_tax or 0),
+        "amountIns": float(current_part.insurance_amount or 0),
+        "subTotalIns": float(current_part.insurance_sub_total or 0),
+        "cgstAmtIns": float(current_part.insurance_cgst_amount or 0),
+        "sgstAmtIns": float(current_part.insurance_sgst_amount or 0),
+        "totalTaxIns": float(current_part.insurance_total_tax or 0),
+        "discountAmtIns": float(current_part.insurance_discount_amount or 0),
     }
 
 
@@ -764,6 +813,11 @@ class CompatJobCardDetailView(CompatAPIView):
     def patch(self, request, pk):
         jobcard = get_object_or_404(JobCard, pk=pk)
         previous = serialize_jobcard(jobcard)
+        if "parts" in request.data:
+            try:
+                save_jobcard_parts(jobcard, request.data.get("parts") or [])
+            except JobCardPartError as exc:
+                return Response({"error": exc.message}, status=exc.status_code)
         field_map = {
             "parts": "parts",
             "labour": "labour",
@@ -815,6 +869,12 @@ class CompatPartsView(CompatAPIView):
             gst=request.data.get("gst") or 0,
             cgst=request.data.get("cgst") or 0,
             sgst=request.data.get("sgst") or 0,
+            quantity=request.data.get("quantity") or 0,
+            itemLocation=request.data.get("itemLocation") or "",
+            vendorName=request.data.get("vendorName") or "",
+            vendorCode=request.data.get("vendorCode") or "",
+            purchasePrice=request.data.get("purchasePrice") or None,
+            purchaseLocation=request.data.get("purchaseLocation") or "",
         )
         log_history(request, product.pk, "parts", "created", _creation_changes(serialize_product(product)))
         return Response(serialize_product(product), status=status.HTTP_201_CREATED)
@@ -822,6 +882,39 @@ class CompatPartsView(CompatAPIView):
 
 class CompatPartsDetailView(CompatAPIView):
     permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, pk):
+        product = get_object_or_404(Product, pk=pk)
+        previous = serialize_product(product)
+        field_map = {
+            "partName": "name",
+            "partNumber": "sku",
+            "hsn": "hsn",
+            "category": "category",
+            "mrp": "mrp",
+            "gst": "gst",
+            "cgst": "cgst",
+            "sgst": "sgst",
+            "quantity": "quantity",
+            "itemCode": "itemCode",
+            "itemLocation": "itemLocation",
+            "vendorName": "vendorName",
+            "vendorCode": "vendorCode",
+            "purchasePrice": "purchasePrice",
+            "purchaseLocation": "purchaseLocation",
+        }
+        updated_fields = []
+        for source, target in field_map.items():
+            if source in request.data:
+                setattr(product, target, request.data[source])
+                updated_fields.append(target)
+                if source == "mrp" and "price" not in updated_fields:
+                    product.price = request.data[source]
+                    updated_fields.append("price")
+        if updated_fields:
+            product.save(update_fields=updated_fields)
+            log_history(request, product.pk, "parts", "updated", _update_changes(previous, serialize_product(product)))
+        return Response(serialize_product(product))
 
     def delete(self, request, pk):
         product = get_object_or_404(Product, pk=pk)
@@ -926,6 +1019,15 @@ class CompatInvoicesView(CompatAPIView):
                 existing.save()
                 log_history(request, existing.pk, "invoice", "updated", _update_changes(previous, serialize_invoice(existing)))
 
+            if invoice_consumes_inventory(existing.invoice_type) and not jobcard.inventory_consumed_at:
+                try:
+                    movements = consume_jobcard_inventory(jobcard, existing)
+                except StockError as exc:
+                    return Response({"error": exc.message}, status=exc.status_code)
+                if movements:
+                    existing.inventory_consumed_at = jobcard.inventory_consumed_at
+                    existing.save(update_fields=["inventory_consumed_at"])
+
             return Response(serialize_invoice(existing), status=status.HTTP_200_OK)
 
         # Otherwise create; handle race where another process may create same invoice concurrently
@@ -953,6 +1055,16 @@ class CompatInvoicesView(CompatAPIView):
             if existing:
                 return Response(serialize_invoice(existing), status=status.HTTP_200_OK)
             raise
+
+        if invoice_consumes_inventory(invoice.invoice_type):
+            try:
+                movements = consume_jobcard_inventory(jobcard, invoice)
+            except StockError as exc:
+                invoice.delete()
+                return Response({"error": exc.message}, status=exc.status_code)
+            if movements:
+                invoice.inventory_consumed_at = jobcard.inventory_consumed_at
+                invoice.save(update_fields=["inventory_consumed_at"])
 
         log_history(request, invoice.pk, "invoice", "created", _creation_changes(serialize_invoice(invoice)))
         return Response(serialize_invoice(invoice), status=status.HTTP_201_CREATED)

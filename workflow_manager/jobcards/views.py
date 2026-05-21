@@ -3,7 +3,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from django.db import IntegrityError, DatabaseError, transaction
+from django.db import IntegrityError, DatabaseError
 from users.permissions import IsServiceOrAdmin
 from inventory.services import StockError, consume_jobcard_inventory
 
@@ -13,7 +13,7 @@ from .serializers import (
     CurrentPartSerializer,
     CurrentLabourSerializer,
 )
-from inventory.models import Product
+from .services import JobCardPartError, save_jobcard_parts
 from drf_spectacular.utils import extend_schema, extend_schema_view
 
 
@@ -484,120 +484,22 @@ class AddPartsToJobCardView(APIView):
         tags=["JobCards"],
     )
     def post(self, request, jobcard_id):
-        # 1) fetch the jobcard
         jobcard = get_object_or_404(JobCard, id=jobcard_id)
-
-        # 2) incoming parts payload
-        parts = request.data.get("parts", [])
-        if not isinstance(parts, list):
-            return Response(
-                {"error": "parts must be a list"}, status=status.HTTP_400_BAD_REQUEST
-            )
-        if jobcard.inventory_consumed_at:
-            return Response(
-                {"error": "Cannot modify parts after inventory has been consumed."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        prepared_parts = []
-        for p in parts:
-            pid = p.get("product_id")
-            if not pid:
-                return Response(
-                    {"error": "product_id is required for each part"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            try:
-                qty = int(p.get("quantity", 1))
-            except (TypeError, ValueError):
-                return Response(
-                    {"error": f"Invalid quantity for product {pid}"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            if qty <= 0:
-                return Response(
-                    {"error": f"Quantity must be greater than zero for product {pid}"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            try:
-                product = Product.objects.get(id=pid)
-            except Product.DoesNotExist:
-                return Response(
-                    {"error": f"Product {pid} not found"},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-            prepared_parts.append((p, pid, qty, product))
-
-        # 3) delete any parts removed on the client
-        added_or_updated = []
-        http_code = status.HTTP_200_OK
-
         try:
-            with transaction.atomic():
-                existing = CurrentPart.objects.filter(job_card=jobcard)
-                received = [pid for _, pid, _, _ in prepared_parts]
-                existing.exclude(product_id__in=received).delete()
-
-                for p, pid, qty, product in prepared_parts:
-            # create or update snapshot
-                    cp = CurrentPart.objects.filter(
-                        job_card=jobcard, product=product
-                    ).first()
-                    created = cp is None
-                    if created:
-                        cp = CurrentPart(job_card=jobcard, product=product)
-
-                    # pull in all snapshot fields
-                    cp.part_id = str(product.id)
-                    cp.part_name = product.name
-                    cp.part_number = product.sku or ""
-                    cp.hsn = product.hsn or ""
-                    cp.quantity = qty
-                    cp.mrp = p.get("mrp", product.mrp or product.price)
-                    cp.sub_total = p.get("sub_total", product.price * qty)
-                    cp.total_tax = p.get("total_tax", 0)
-                    cp.amount = p.get("amount", product.price * qty)
-                    cp.gst = p.get("gst", product.gst or 0)
-                    cp.cgst = p.get("cgst", product.cgst or 0)
-                    cp.sgst = p.get("sgst", product.sgst or 0)
-
-            # if you’re providing the tax/price breakdown in the payload, trust it:
-                    for fld in (
-                        "discount_percentage",
-                        "discounted_subtotal",
-                        "discount_amount",
-                        "insurance_percentage",
-                        "insurance_subtotal",
-                        "insurance_amount",
-                        "cgst_amount",
-                        "sgst_amount",
-                        "customer_amount",
-                        "customer_sub_total",
-                        "customer_cgst_amount",
-                        "customer_sgst_amount",
-                        "customer_discount_amount",
-                        "customer_total_tax",
-                        "insurance_sub_total",
-                        "insurance_cgst_amount",
-                        "insurance_sgst_amount",
-                        "insurance_total_tax",
-                        "insurance_discount_amount",
-                    ):
-                        if fld in p:
-                            setattr(cp, fld, p[fld])
-
-                    cp.save()
-                    added_or_updated.append(CurrentPartSerializer(cp).data)
-                    http_code = (
-                        status.HTTP_201_CREATED if created else status.HTTP_200_OK
-                    )
+            saved_parts = save_jobcard_parts(jobcard, request.data.get("parts", []))
+        except JobCardPartError as exc:
+            return Response({"error": exc.message}, status=exc.status_code)
         except DatabaseError:
             return Response(
                 {"error": "Database error saving parts."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        return Response({"added_or_updated_parts": added_or_updated}, status=http_code)
+        return Response(
+            {"added_or_updated_parts": CurrentPartSerializer(saved_parts, many=True).data},
+            status=status.HTTP_200_OK,
+        )
+
 
 
 class AddLaboursToJobCardView(APIView):
