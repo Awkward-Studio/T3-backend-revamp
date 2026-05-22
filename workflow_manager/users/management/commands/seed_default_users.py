@@ -15,7 +15,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         password = os.getenv("SEED_USER_PASSWORD", DEFAULT_PASSWORD)
-        admin_email = os.getenv("ADMIN_EMAIL", "admin@example.local")
+        admin_email = os.getenv("ADMIN_EMAIL", "admin@example.com")
         admin_password = os.getenv("ADMIN_PASSWORD", password)
 
         users = [
@@ -26,11 +26,11 @@ class Command(BaseCommand):
                 "is_staff": True,
                 "is_superuser": True,
             },
-            {"email": "service@example.local", "password": password, "role": RoleName.SERVICE},
-            {"email": "biller@example.local", "password": password, "role": RoleName.BILLER},
-            {"email": "parts@example.local", "password": password, "role": RoleName.PARTS},
-            {"email": "security@example.local", "password": password, "role": RoleName.SECURITY},
-            {"email": "caller@example.local", "password": password, "role": RoleName.CALLER},
+            {"email": "service@example.com", "password": password, "role": RoleName.SERVICE},
+            {"email": "biller@example.com", "password": password, "role": RoleName.BILLER},
+            {"email": "parts@example.com", "password": password, "role": RoleName.PARTS},
+            {"email": "security@example.com", "password": password, "role": RoleName.SECURITY},
+            {"email": "caller@example.com", "password": password, "role": RoleName.CALLER},
         ]
 
         User = get_user_model()

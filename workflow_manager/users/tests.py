@@ -13,12 +13,12 @@ class SeedDefaultUsersTests(TestCase):
         call_command("seed_default_users")
 
         expected_users = {
-            "admin@example.local": RoleName.ADMIN,
-            "service@example.local": RoleName.SERVICE,
-            "biller@example.local": RoleName.BILLER,
-            "parts@example.local": RoleName.PARTS,
-            "security@example.local": RoleName.SECURITY,
-            "caller@example.local": RoleName.CALLER,
+            "admin@example.com": RoleName.ADMIN,
+            "service@example.com": RoleName.SERVICE,
+            "biller@example.com": RoleName.BILLER,
+            "parts@example.com": RoleName.PARTS,
+            "security@example.com": RoleName.SECURITY,
+            "caller@example.com": RoleName.CALLER,
         }
 
         self.assertEqual(User.objects.count(), len(expected_users))
@@ -27,6 +27,6 @@ class SeedDefaultUsersTests(TestCase):
             self.assertTrue(user.check_password("Example@2026"))
             self.assertTrue(user.has_role(role_name))
 
-        admin = User.objects.get(email="admin@example.local")
+        admin = User.objects.get(email="admin@example.com")
         self.assertTrue(admin.is_staff)
         self.assertTrue(admin.is_superuser)
