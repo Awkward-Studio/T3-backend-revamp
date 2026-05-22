@@ -259,6 +259,10 @@ def serialize_jobcard(jobcard):
         "carOdometer": jobcard.bat_odometer or "",
         "gstin": jobcard.gstin,
         "callingStatus": jobcard.calling_status,
+        "inventoryConsumedAt": _iso(jobcard.inventory_consumed_at),
+        "inventoryConsumedBy": str(jobcard.inventory_consumed_by_id)
+        if jobcard.inventory_consumed_by_id
+        else None,
     }
 
 
@@ -814,6 +818,20 @@ class CompatJobCardDetailView(CompatAPIView):
     def patch(self, request, pk):
         jobcard = get_object_or_404(JobCard, pk=pk)
         previous = serialize_jobcard(jobcard)
+        locked_fields = {
+            "parts",
+            "labour",
+            "subTotal",
+            "discountAmt",
+            "amount",
+            "taxes",
+            "insuranceDetails",
+        }
+        if jobcard.inventory_consumed_at and locked_fields.intersection(request.data):
+            return Response(
+                {"error": "Cannot modify jobcard parts, labour, or totals after inventory has been consumed."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if "parts" in request.data:
             try:
                 save_jobcard_parts(jobcard, request.data.get("parts") or [])
@@ -995,6 +1013,12 @@ class CompatInvoicesView(CompatAPIView):
         if existing:
             previous = serialize_invoice(existing)
             updated = False
+            if invoice_type and invoice_type != existing.invoice_type:
+                existing.invoice_type = invoice_type
+                updated = True
+            if category != existing.category:
+                existing.category = category
+                updated = True
             # update only fields that can change on regenerate
             if "invoiceUrl" in request.data and request.data.get("invoiceUrl") != existing.invoice_url:
                 existing.invoice_url = request.data.get("invoiceUrl")
@@ -1020,7 +1044,7 @@ class CompatInvoicesView(CompatAPIView):
                 existing.save()
                 log_history(request, existing.pk, "invoice", "updated", _update_changes(previous, serialize_invoice(existing)))
 
-            if invoice_consumes_inventory(existing.invoice_type) and not jobcard.inventory_consumed_at:
+            if invoice_consumes_inventory(invoice_type) and not jobcard.inventory_consumed_at:
                 try:
                     movements = consume_jobcard_inventory(jobcard, existing)
                 except StockError as exc:

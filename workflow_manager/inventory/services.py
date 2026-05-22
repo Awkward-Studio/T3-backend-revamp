@@ -76,7 +76,7 @@ def consume_jobcard_inventory(jobcard, invoice=None):
 
         locked_jobcard.inventory_consumed_at = timezone.now()
         locked_jobcard.inventory_consumed_by = invoice
-        locked_jobcard.job_card_status = 4
+        locked_jobcard.job_card_status = 5
         locked_jobcard.save(
             update_fields=[
                 "inventory_consumed_at",

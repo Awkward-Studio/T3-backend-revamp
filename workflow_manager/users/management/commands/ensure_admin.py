@@ -1,3 +1,5 @@
+import os
+
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 
@@ -8,21 +10,36 @@ class Command(BaseCommand):
     help = "Create the default admin user if it does not already exist"
 
     def handle(self, *args, **options):
-        email = "admin@example.com"
-        password = "changeme"
+        email = os.getenv("ADMIN_EMAIL", "admin@example.com")
+        password = os.getenv("ADMIN_PASSWORD", "changeme")
+        reset_password = os.getenv("RESET_ADMIN_PASSWORD", "").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
         User = get_user_model()
 
-        existing_user = User.objects.filter(email=email).first()
-        if existing_user:
-            self.stdout.write(f"Admin user already exists: {email}")
-            return
-
-        admin_user = User.objects.create_superuser(
-            username=email,
-            email=email,
-            password=password,
+        admin_user = (
+            User.objects.filter(email__iexact=email).first()
+            or User.objects.filter(username__iexact=email).first()
         )
+        created = admin_user is None
+
+        if created:
+            admin_user = User(username=email, email=email)
+
+        admin_user.username = email
+        admin_user.email = email
+        admin_user.is_active = True
+        admin_user.is_staff = True
+        admin_user.is_superuser = True
+        if created or reset_password:
+            admin_user.set_password(password)
+        admin_user.save()
+
         admin_role, _ = Role.objects.get_or_create(name=RoleName.ADMIN)
         admin_user.roles.add(admin_role)
 
-        self.stdout.write(self.style.SUCCESS(f"Created admin user: {email}"))
+        action = "Created" if created else "Updated"
+        self.stdout.write(self.style.SUCCESS(f"{action} admin user: {email}"))
