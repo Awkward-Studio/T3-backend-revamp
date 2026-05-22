@@ -127,16 +127,27 @@ WSGI_APPLICATION = 'workflow_manager.wsgi.application'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+SQLITE_PATH = os.getenv("SQLITE_PATH")
+RAILWAY_VOLUME_MOUNT_PATH = os.getenv("RAILWAY_VOLUME_MOUNT_PATH")
 
 if DATABASE_URL:
     DATABASES = {
         "default": database_from_url(DATABASE_URL),
     }
 else:
+    sqlite_name = (
+        SQLITE_PATH
+        or (
+            str(Path(RAILWAY_VOLUME_MOUNT_PATH) / "db.sqlite3")
+            if RAILWAY_VOLUME_MOUNT_PATH
+            else str(BASE_DIR / "db.sqlite3")
+        )
+    )
+    Path(sqlite_name).parent.mkdir(parents=True, exist_ok=True)
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
-            "NAME": BASE_DIR / "db.sqlite3",
+            "NAME": sqlite_name,
         }
     }
 

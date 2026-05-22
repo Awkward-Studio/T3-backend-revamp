@@ -5,7 +5,7 @@
     "buildCommand": "cd workflow_manager && python manage.py collectstatic --noinput"
   },
   "deploy": {
-    "preDeployCommand": ["bash railway-predeploy.sh"],
+    "preDeployCommand": "bash railway-predeploy.sh",
     "startCommand": "bash start.sh",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 10
