@@ -20,9 +20,23 @@ from django.urls import path
 from django.urls import include
 from django.conf import settings
 from django.conf.urls.static import static
+from django.http import JsonResponse
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
+
+def health_check(_request):
+    return JsonResponse(
+        {
+            "status": "ok",
+            "service": "t3-backend-revamp",
+            "docs": "/api/docs/",
+            "schema": "/api/schema/",
+        }
+    )
+
 urlpatterns = [
+    path("", health_check, name="health-check"),
+    path("health/", health_check, name="health-check"),
     path("admin/", admin.site.urls),
     path("api/", include("users.urls")),
     path("api/", include("jobcards.urls")),
