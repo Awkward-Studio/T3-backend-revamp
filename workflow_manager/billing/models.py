@@ -1,7 +1,11 @@
 import uuid
+from decimal import Decimal
+
+from django.core.validators import MinValueValidator
 from django.db import models, transaction
 from django.db.models import F
 from jobcards.models import JobCard
+from vehicle_management.models import Car
 
 
 class InvoiceCounter(models.Model):
@@ -24,15 +28,37 @@ class Invoice(models.Model):
     job_card = models.ForeignKey(
         JobCard, on_delete=models.CASCADE, related_name="invoices"
     )
+    wallet_transaction = models.OneToOneField(
+        "WalletTransaction",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="invoice",
+    )
     invoice_series = models.CharField(max_length=10, choices=SERIES_CHOICES)
     invoice_type = models.CharField(max_length=50)
     category = models.CharField(max_length=20, blank=True, default="")
     invoice_number = models.PositiveIntegerField()
-    invoice_code = models.CharField(max_length=50, blank=True)  # your custom code
-    car_number = models.CharField(max_length=50, blank=True)  # your custom code
-    is_updated = models.BooleanField(default=False)  # parallels your isUpdatedInvoice
+    invoice_code = models.CharField(max_length=50, blank=True)
+    car_number = models.CharField(max_length=50, blank=True)
+    is_updated = models.BooleanField(default=False)
     is_insurance_invoice = models.BooleanField(default=False)
     inventory_consumed_at = models.DateTimeField(blank=True, null=True)
+    invoice_total = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+    wallet_credit_used = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+    final_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
     invoice_url = models.URLField()
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -70,15 +96,25 @@ class Invoice(models.Model):
         normalized_category = cls._normalized_label(category)
         qs = cls.objects.filter(job_card=job_card, invoice_series=invoice_series)
 
-        if normalized_type in cls._customer_invoice_types() or normalized_category in {"", "customer"}:
+        if normalized_type in cls._customer_invoice_types() or normalized_category in {
+            "",
+            "customer",
+        }:
             candidate_categories = ["", "Customer", "customer"]
-            customer_qs = qs.filter(category__in=candidate_categories).order_by("created_at", "invoice_number")
+            customer_qs = qs.filter(category__in=candidate_categories).order_by(
+                "created_at", "invoice_number"
+            )
             for invoice in customer_qs:
-                if cls._normalized_label(invoice.invoice_type) in cls._customer_invoice_types():
+                if (
+                    cls._normalized_label(invoice.invoice_type)
+                    in cls._customer_invoice_types()
+                ):
                     return invoice
             return None
 
-        exact_qs = qs.filter(category=category or "").order_by("created_at", "invoice_number")
+        exact_qs = qs.filter(category=category or "").order_by(
+            "created_at", "invoice_number"
+        )
         for invoice in exact_qs:
             if cls._normalized_label(invoice.invoice_type) == normalized_type:
                 return invoice
@@ -113,25 +149,69 @@ class Invoice(models.Model):
         normalized_type = cls._normalized_label(invoice_type)
         normalized_category = cls._normalized_label(category)
 
-        # Customer quote/pro-forma/tax invoices share the same logical invoice.
-        if normalized_type in cls._customer_invoice_types() or normalized_category in {"", "customer"}:
+        if normalized_type in cls._customer_invoice_types() or normalized_category in {
+            "",
+            "customer",
+        }:
             category = ""
         else:
             category = category or ""
-        print("job card", job_card)
-        print("invoice type is", invoice_type)
-        print("Invoice series is", invoice_series)
-        print("cls", cls)
+
         existing = cls.find_existing_invoice(
             job_card=job_card,
             invoice_series=invoice_series,
             invoice_type=invoice_type,
             category=category,
         )
-        existing_qs = cls.objects.filter(pk=existing.pk) if existing else cls.objects.none()
-        print("existing", existing_qs)
         if existing:
             return existing.invoice_number
 
-        # Counter is tracked per invoice_series.
         return cls._next_number(invoice_series)
+
+
+class CustomerWallet(models.Model):
+    car = models.OneToOneField(
+        Car,
+        on_delete=models.CASCADE,
+        related_name="customer_wallet",
+    )
+    balance = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal("0.00"),
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at", "-id"]
+
+    def __str__(self):
+        return f"Wallet for {self.car.car_number}"
+
+
+class WalletTransaction(models.Model):
+    class TransactionType(models.TextChoices):
+        CREDIT = "CREDIT", "Credit"
+        DEBIT = "DEBIT", "Debit"
+
+    wallet = models.ForeignKey(
+        CustomerWallet,
+        on_delete=models.CASCADE,
+        related_name="transactions",
+    )
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.01"))],
+    )
+    reason = models.TextField()
+    type = models.CharField(max_length=10, choices=TransactionType.choices)
+    created_by = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return f"{self.type} {self.amount} for {self.wallet.car.car_number}"

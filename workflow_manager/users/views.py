@@ -1,10 +1,11 @@
 from django.shortcuts import get_object_or_404
-from rest_framework.views import APIView
+from rest_framework import permissions, status
 from rest_framework.response import Response
-from rest_framework import status, permissions
+from rest_framework.views import APIView
 
 from .models import CustomUser, Label
-from .serializers import UserSerializer, LabelSerializer
+from .permissions import IsAdmin
+from .serializers import LabelSerializer, UserSerializer
 
 
 #
@@ -57,8 +58,16 @@ class LabelDetail(APIView):
 class UserListCreate(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsAdmin()]
+        return [permissions.IsAuthenticated()]
+
     def get(self, request):
-        users = CustomUser.objects.all()
+        users = CustomUser.objects.all().order_by("id")
+        role = (request.query_params.get("role") or "").strip().lower()
+        if role:
+            users = users.filter(roles__name=role).distinct()
         serializer = UserSerializer(users, many=True)
         return Response(serializer.data)
 
@@ -73,6 +82,11 @@ class UserListCreate(APIView):
 
 class UserDetail(APIView):
     permission_classes = [permissions.IsAuthenticated]
+
+    def get_permissions(self):
+        if self.request.method in {"PUT", "PATCH", "DELETE"}:
+            return [IsAdmin()]
+        return [permissions.IsAuthenticated()]
 
     def get_object(self, pk):
         return get_object_or_404(CustomUser, pk=pk)

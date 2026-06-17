@@ -1,8 +1,9 @@
 import uuid
+
 from django.db import models, transaction
+from django.db.models import F
 from inventory.models import Product
 from vehicle_management.models import TempCar
-from django.db.models import F
 
 
 class JobCardCounter(models.Model):
@@ -39,6 +40,7 @@ class JobCard(models.Model):
     )
 
     diagnosis = models.JSONField(default=list, blank=True)
+    accessories = models.JSONField(default=list, blank=True)
     send_to_parts_manager = models.BooleanField(default=False)
 
     # vehicle & customer info
@@ -49,10 +51,15 @@ class JobCard(models.Model):
     customer_address = models.TextField(blank=True, null=True)
     customer_email = models.EmailField(blank=True, null=True)
     gstin = models.CharField(max_length=20, blank=True, null=True)
+    date_of_birth = models.DateField(blank=True, null=True)
+    anniversary_date = models.DateField(blank=True, null=True)
+    insurance_policy_expiry_date = models.DateField(blank=True, null=True)
 
     # what’s done on the job
     parts = models.JSONField(default=list, blank=True)
     labour = models.JSONField(default=list, blank=True)
+    labour_checklist = models.JSONField(default=list, blank=True)
+    suggested_parts = models.JSONField(default=list, blank=True)
     images = models.JSONField(default=list, blank=True)
 
     # misc fields
@@ -73,9 +80,51 @@ class JobCard(models.Model):
 
     purpose_of_visit = models.CharField(max_length=255, blank=True, null=True)
     service_advisor_id = models.CharField(max_length=100, blank=True, null=True)
+    assigned_technician_id = models.CharField(max_length=100, blank=True, null=True)
     observation_remarks = models.TextField(blank=True, null=True)
 
     calling_status = models.IntegerField(default=0)
+
+    class WorkflowStatus(models.TextChoices):
+        JOB_CARD_CREATED = "JOB_CARD_CREATED", "Job Card Created"
+        WAITING_CUSTOMER_APPROVAL = (
+            "WAITING_CUSTOMER_APPROVAL",
+            "Waiting Customer Approval",
+        )
+        CUSTOMER_APPROVED = "CUSTOMER_APPROVED", "Customer Approved"
+        CUSTOMER_PARTIALLY_APPROVED = (
+            "CUSTOMER_PARTIALLY_APPROVED",
+            "Customer Partially Approved",
+        )
+        CUSTOMER_REJECTED = "CUSTOMER_REJECTED", "Customer Rejected"
+        MECHANIC_IN_PROGRESS = "MECHANIC_IN_PROGRESS", "Mechanic In Progress"
+        MECHANIC_COMPLETED = "MECHANIC_COMPLETED", "Mechanic Completed"
+        POST_DELIVERY_INSPECTION_PENDING = (
+            "POST_DELIVERY_INSPECTION_PENDING",
+            "Post Delivery Inspection Pending",
+        )
+        POST_DELIVERY_COMPLETED = (
+            "POST_DELIVERY_COMPLETED",
+            "Post Delivery Inspection Completed",
+        )
+        VEHICLE_COLLECTED = "VEHICLE_COLLECTED", "Vehicle Collected"
+
+    workflow_status = models.CharField(
+        max_length=50,
+        choices=WorkflowStatus.choices,
+        default=WorkflowStatus.JOB_CARD_CREATED,
+    )
+    recommended_labour = models.JSONField(default=list, blank=True)
+    recommended_parts = models.JSONField(default=list, blank=True)
+    advisor_notes = models.TextField(blank=True, null=True)
+    approved_items = models.JSONField(default=list, blank=True)
+    mechanic_checklist = models.JSONField(default=list, blank=True)
+    mechanic_notes = models.TextField(blank=True, null=True)
+    post_delivery_checklist = models.JSONField(default=list, blank=True)
+    post_delivery_images = models.JSONField(default=list, blank=True)
+    post_delivery_completed_at = models.DateTimeField(blank=True, null=True)
+    post_delivery_completed_by = models.CharField(max_length=255, blank=True, null=True)
+
     inventory_consumed_at = models.DateTimeField(blank=True, null=True)
     inventory_consumed_by = models.ForeignKey(
         "billing.Invoice",
@@ -305,3 +354,60 @@ class CurrentLabour(models.Model):
 
     def __str__(self):
         return f"{self.labour_name} on TempCar {self.temp_car.id}"
+
+
+class CustomerApproval(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        APPROVED = "APPROVED", "Approved"
+        PARTIALLY_APPROVED = "PARTIALLY_APPROVED", "Partially Approved"
+        REJECTED = "REJECTED", "Rejected"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    job_card = models.ForeignKey(
+        JobCard,
+        on_delete=models.CASCADE,
+        related_name="customer_approvals",
+    )
+    approval_token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    status = models.CharField(
+        max_length=30,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    customer_notes = models.TextField(blank=True, null=True)
+    approved_at = models.DateTimeField(blank=True, null=True)
+    created_by = models.CharField(max_length=100, blank=True, null=True)
+    link_created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"CustomerApproval for {self.job_card.car_number} ({self.status})"
+
+
+class ApprovalItem(models.Model):
+    class ItemType(models.TextChoices):
+        PART = "PART", "Part"
+        LABOUR = "LABOUR", "Labour"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    customer_approval = models.ForeignKey(
+        CustomerApproval,
+        on_delete=models.CASCADE,
+        related_name="items",
+    )
+    item_type = models.CharField(max_length=10, choices=ItemType.choices)
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True, null=True)
+    estimated_cost = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    image = models.URLField(blank=True, null=True)
+    approved = models.BooleanField(null=True, blank=True)
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["sort_order", "created_at"]
+
+    def __str__(self):
+        return f"{self.item_type}: {self.name}"

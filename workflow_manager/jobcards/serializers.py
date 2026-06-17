@@ -2,7 +2,8 @@ import json
 from decimal import Decimal
 
 from rest_framework import serializers
-from .models import JobCard, CurrentPart, CurrentLabour
+
+from .models import CurrentLabour, CurrentPart, JobCard
 
 
 class JobCardSerializer(serializers.ModelSerializer):
@@ -18,6 +19,7 @@ class JobCardSerializer(serializers.ModelSerializer):
             "car_id",  # <-- use car_id, not card_id
             "temp_car",
             "diagnosis",
+            "accessories",
             "send_to_parts_manager",
             "car_number",
             "job_card_status",
@@ -26,8 +28,13 @@ class JobCardSerializer(serializers.ModelSerializer):
             "customer_address",
             "customer_email",
             "gstin",
+            "date_of_birth",
+            "anniversary_date",
+            "insurance_policy_expiry_date",
             "parts",
             "labour",
+            "labour_checklist",
+            "suggested_parts",
             "images",
             "job_card_number",
             "car_fuel",
@@ -41,8 +48,17 @@ class JobCardSerializer(serializers.ModelSerializer):
             "gate_pass_pdf",
             "purpose_of_visit",
             "service_advisor_id",
+            "assigned_technician_id",
             "observation_remarks",
             "calling_status",
+            "workflow_status",
+            "approved_items",
+            "mechanic_checklist",
+            "mechanic_notes",
+            "post_delivery_checklist",
+            "post_delivery_images",
+            "post_delivery_completed_at",
+            "post_delivery_completed_by",
             "inventory_consumed_at",
             "inventory_consumed_by",
             "created_at",
@@ -114,10 +130,18 @@ class JobCardSerializer(serializers.ModelSerializer):
         # Parse labour items (Appwrite often stores these as JSON strings)
         labour_items = self._parse_json_items(data.get("labour") or [])
 
-        parts_total_pre_tax = self._sum_amount(parts_items, "subTotal", "sub_total", "subTotalCust", "sub_total_cust")
-        parts_total_post_tax = self._sum_amount(parts_items, "amount", "totalAmount", "total_amount")
-        labour_total_pre_tax = self._sum_amount(labour_items, "subTotal", "sub_total", "subTotalCust", "sub_total_cust")
-        labour_total_post_tax = self._sum_amount(labour_items, "amount", "totalAmount", "total_amount")
+        parts_total_pre_tax = self._sum_amount(
+            parts_items, "subTotal", "sub_total", "subTotalCust", "sub_total_cust"
+        )
+        parts_total_post_tax = self._sum_amount(
+            parts_items, "amount", "totalAmount", "total_amount"
+        )
+        labour_total_pre_tax = self._sum_amount(
+            labour_items, "subTotal", "sub_total", "subTotalCust", "sub_total_cust"
+        )
+        labour_total_post_tax = self._sum_amount(
+            labour_items, "amount", "totalAmount", "total_amount"
+        )
 
         total_tax = round(
             (parts_total_post_tax - parts_total_pre_tax)
@@ -135,8 +159,10 @@ class JobCardSerializer(serializers.ModelSerializer):
             "$createdAt": data.get("created_at"),
             "$updatedAt": data.get("updated_at"),
             "serviceAdvisorID": data.get("service_advisor_id"),
+            "assignedMechanicId": data.get("assigned_technician_id") or "",
             "carId": data.get("car_id"),
             "diagnosis": data.get("diagnosis") or [],
+            "accessories": data.get("accessories") or [],
             "sendToPartsManager": bool(data.get("send_to_parts_manager")),
             "carNumber": data.get("car_number"),
             "jobCardStatus": data.get("job_card_status"),
@@ -144,9 +170,14 @@ class JobCardSerializer(serializers.ModelSerializer):
             "customerPhone": data.get("customer_phone"),
             "customerAddress": data.get("customer_address"),
             "customerEmail": data.get("customer_email"),
+            "dateOfBirth": data.get("date_of_birth"),
+            "anniversaryDate": data.get("anniversary_date"),
+            "insurancePolicyExpiryDate": data.get("insurance_policy_expiry_date"),
             "parts": parts_value,
             "currentParts": parts_value,
             "labour": data.get("labour") or [],
+            "labourChecklist": data.get("labour_checklist") or [],
+            "suggestedParts": data.get("suggested_parts") or [],
             "images": data.get("images") or [],
             "observationRemarks": data.get("observation_remarks") or "",
             "partsTotalPreTax": parts_total_pre_tax,
@@ -169,6 +200,14 @@ class JobCardSerializer(serializers.ModelSerializer):
             "totalRoundedOffAmount": total_rounded,
             "roundOffValue": round_off_value,
             "taxes": data.get("taxes") or [],
+            "workflowStatus": data.get("workflow_status"),
+            "approvedItems": data.get("approved_items") or [],
+            "mechanicChecklist": data.get("mechanic_checklist") or [],
+            "mechanicNotes": data.get("mechanic_notes") or "",
+            "postDeliveryChecklist": data.get("post_delivery_checklist") or [],
+            "postDeliveryImages": data.get("post_delivery_images") or [],
+            "postDeliveryCompletedAt": data.get("post_delivery_completed_at"),
+            "postDeliveryCompletedBy": data.get("post_delivery_completed_by") or "",
             "inventoryConsumedAt": data.get("inventory_consumed_at"),
             "inventoryConsumedBy": data.get("inventory_consumed_by"),
         }

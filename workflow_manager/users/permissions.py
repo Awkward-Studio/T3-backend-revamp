@@ -34,6 +34,11 @@ class IsBillerOrAdmin(HasAnyRole):
     required_roles = (RoleName.BILLER,)
 
 
+class IsBillerOnly(HasAnyRole):
+    required_roles = (RoleName.BILLER,)
+    admin_bypass = False
+
+
 class IsPartsOrAdmin(HasAnyRole):
     required_roles = (RoleName.PARTS,)
 
@@ -44,3 +49,7 @@ class IsSecurityOrAdmin(HasAnyRole):
 
 class IsCallerOrAdmin(HasAnyRole):
     required_roles = (RoleName.CALLER,)
+
+
+class IsMechanicOrAdmin(HasAnyRole):
+    required_roles = (RoleName.MECHANIC,)
