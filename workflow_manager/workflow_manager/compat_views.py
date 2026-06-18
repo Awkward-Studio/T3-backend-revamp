@@ -718,6 +718,9 @@ def _build_post_delivery_checklist(jobcard, source_tasks=None):
         if task.get("name")
     }
 
+    if not approved_labour:
+        return normalized_tasks, approved_labour
+
     checklist = []
     for index, item in enumerate(approved_labour):
         approval_item_id = str(item.get("id") or "").strip()
@@ -946,13 +949,31 @@ def _jobcards_for_car(car):
 
 
 def _current_jobcard_for_portal(jobcards):
+    latest_completed_jobcard = None
+
     for jobcard in jobcards:
         if (
             jobcard.workflow_status != JobCard.WorkflowStatus.VEHICLE_COLLECTED
             and int(jobcard.job_card_status or 0) < 7
         ):
             return jobcard
-    return None
+        if latest_completed_jobcard is None:
+            latest_completed_jobcard = jobcard
+
+    return latest_completed_jobcard
+
+
+def _customer_portal_can_view_post_delivery(jobcard):
+    if not jobcard:
+        return False
+
+    if jobcard.workflow_status in {
+        JobCard.WorkflowStatus.POST_DELIVERY_COMPLETED,
+        JobCard.WorkflowStatus.VEHICLE_COLLECTED,
+    }:
+        return True
+
+    return bool(jobcard.gate_pass_pdf) or int(jobcard.job_card_status or 0) >= 6
 
 
 def _history_invoice_for_jobcard(jobcard):
@@ -1037,6 +1058,11 @@ def _serialize_customer_portal_payload(portal):
 
     if current_jobcard:
         mechanic_checklist, _ = _build_mechanic_checklist(current_jobcard)
+        post_delivery_checklist, _ = _build_post_delivery_checklist(current_jobcard)
+        post_delivery_visible = _customer_portal_can_view_post_delivery(current_jobcard)
+        post_delivery_images = _normalize_post_delivery_images(
+            current_jobcard.post_delivery_images
+        )
         completed_task_count, total_task_count, mechanic_progress_percentage = (
             _mechanic_progress(mechanic_checklist)
         )
@@ -1056,6 +1082,24 @@ def _serialize_customer_portal_payload(portal):
             "completedTaskCount": completed_task_count,
             "totalTaskCount": total_task_count,
             "mechanicProgressPercentage": mechanic_progress_percentage,
+            "postDeliveryInspectionVisible": post_delivery_visible,
+            "postDeliveryChecklist": (
+                post_delivery_checklist if post_delivery_visible else []
+            ),
+            "postDeliveryImages": post_delivery_images if post_delivery_visible else [],
+            "postDeliveryRequiredImageTypes": (
+                POST_DELIVERY_REQUIRED_IMAGE_TYPES if post_delivery_visible else []
+            ),
+            "postDeliveryCompletedAt": (
+                _iso(current_jobcard.post_delivery_completed_at)
+                if post_delivery_visible
+                else None
+            ),
+            "postDeliveryCompletedBy": (
+                current_jobcard.post_delivery_completed_by or ""
+                if post_delivery_visible
+                else ""
+            ),
         }
     else:
         current_vehicle_status = {
@@ -1071,6 +1115,12 @@ def _serialize_customer_portal_payload(portal):
             "completedTaskCount": 0,
             "totalTaskCount": 0,
             "mechanicProgressPercentage": 0,
+            "postDeliveryInspectionVisible": False,
+            "postDeliveryChecklist": [],
+            "postDeliveryImages": [],
+            "postDeliveryRequiredImageTypes": [],
+            "postDeliveryCompletedAt": None,
+            "postDeliveryCompletedBy": "",
         }
 
     previous_visits = [

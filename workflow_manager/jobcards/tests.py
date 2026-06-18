@@ -269,6 +269,160 @@ class CustomerPortalAccessoriesTests(TestCase):
         )
 
 
+class CustomerPortalPostDeliveryInspectionTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.car = Car.objects.create(
+            car_number="MH01EE0001",
+            car_make="Tata",
+            car_model="Harrier",
+            customer_name="Portal PDI Customer",
+            customer_phone="9999999995",
+        )
+        self.temp_car = TempCar.objects.create(
+            car=self.car,
+            purpose_of_visit_and_advisors=[
+                {
+                    "description": "Running Repair",
+                    "advisorEmail": "advisor@example.com",
+                }
+            ],
+        )
+        CustomerPortal.objects.create(car=self.car)
+
+    def _portal_response(self):
+        return self.client.post(
+            "/api/compat/portal/",
+            {"licensePlate": self.car.car_number},
+            format="json",
+        )
+
+    def test_customer_portal_hides_post_delivery_until_completed(self):
+        JobCard.objects.create(
+            car_id="JC-PORTAL-PDI-HIDDEN",
+            temp_car=self.temp_car,
+            car_number=self.car.car_number,
+            job_card_status=5,
+            customer_name=self.car.customer_name,
+            customer_phone=self.car.customer_phone,
+            purpose_of_visit="Running Repair",
+            workflow_status=JobCard.WorkflowStatus.POST_DELIVERY_INSPECTION_PENDING,
+            post_delivery_checklist=[
+                {
+                    "id": "task-1",
+                    "name": "Oil Change Verified",
+                    "completed": True,
+                }
+            ],
+            post_delivery_images=[
+                {
+                    "imageType": "Front",
+                    "thumbnailURL": "https://example.com/front-thumb.jpg",
+                    "imageURL": "https://example.com/front.jpg",
+                }
+            ],
+            job_card_number=None,
+        )
+
+        response = self._portal_response()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(
+            response.data["currentVehicleStatus"]["postDeliveryInspectionVisible"]
+        )
+        self.assertEqual(
+            response.data["currentVehicleStatus"]["postDeliveryChecklist"], []
+        )
+        self.assertEqual(
+            response.data["currentVehicleStatus"]["postDeliveryImages"], []
+        )
+
+    def test_customer_portal_includes_completed_post_delivery_details(self):
+        JobCard.objects.create(
+            car_id="JC-PORTAL-PDI-COMPLETE",
+            temp_car=self.temp_car,
+            car_number=self.car.car_number,
+            job_card_status=7,
+            customer_name=self.car.customer_name,
+            customer_phone=self.car.customer_phone,
+            purpose_of_visit="Running Repair",
+            workflow_status=JobCard.WorkflowStatus.VEHICLE_COLLECTED,
+            post_delivery_checklist=[
+                {
+                    "id": "task-1",
+                    "name": "Oil Change Verified",
+                    "completed": True,
+                },
+                {
+                    "id": "task-2",
+                    "name": "Brake Pad Replacement Verified",
+                    "completed": True,
+                },
+            ],
+            post_delivery_images=[
+                {
+                    "imageType": "Fuel",
+                    "thumbnailURL": "https://example.com/fuel-thumb.jpg",
+                    "imageURL": "https://example.com/fuel.jpg",
+                },
+                {
+                    "imageType": "Odometer",
+                    "thumbnailURL": "https://example.com/odometer-thumb.jpg",
+                    "imageURL": "https://example.com/odometer.jpg",
+                },
+                {
+                    "imageType": "Front",
+                    "thumbnailURL": "https://example.com/front-thumb.jpg",
+                    "imageURL": "https://example.com/front.jpg",
+                },
+                {
+                    "imageType": "Back",
+                    "thumbnailURL": "https://example.com/back-thumb.jpg",
+                    "imageURL": "https://example.com/back.jpg",
+                },
+                {
+                    "imageType": "Left",
+                    "thumbnailURL": "https://example.com/left-thumb.jpg",
+                    "imageURL": "https://example.com/left.jpg",
+                },
+                {
+                    "imageType": "Right",
+                    "thumbnailURL": "https://example.com/right-thumb.jpg",
+                    "imageURL": "https://example.com/right.jpg",
+                },
+            ],
+            post_delivery_completed_by="advisor@example.com",
+            job_card_number=None,
+        )
+
+        response = self._portal_response()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(
+            response.data["currentVehicleStatus"]["postDeliveryInspectionVisible"]
+        )
+        self.assertEqual(
+            response.data["currentVehicleStatus"]["currentStatus"],
+            "Vehicle Collected",
+        )
+        self.assertEqual(
+            [
+                item["name"]
+                for item in response.data["currentVehicleStatus"][
+                    "postDeliveryChecklist"
+                ]
+            ],
+            ["Oil Change Verified", "Brake Pad Replacement Verified"],
+        )
+        self.assertEqual(
+            [
+                image["imageType"]
+                for image in response.data["currentVehicleStatus"]["postDeliveryImages"]
+            ],
+            ["Fuel", "Odometer", "Front", "Back", "Left", "Right"],
+        )
+
+
 class InsuranceDetailsPermissionTests(TestCase):
     def setUp(self):
         self.client = APIClient()
