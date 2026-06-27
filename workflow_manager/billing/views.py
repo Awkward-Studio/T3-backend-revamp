@@ -186,6 +186,13 @@ class CreateInvoiceView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        requested_apply_gst = bool(data.get("apply_gst", jobcard.apply_gst))
+        if jobcard.apply_gst != requested_apply_gst:
+            jobcard.apply_gst = requested_apply_gst
+            jobcard.save(update_fields=["apply_gst", "updated_at"])
+
+        effective_apply_gst = jobcard.apply_gst
+
         try:
             invoice_total, wallet_credit_used, final_amount = get_invoice_financials(
                 data
@@ -222,6 +229,7 @@ class CreateInvoiceView(APIView):
                     invoice_total=invoice_total,
                     wallet_credit_used=wallet_credit_used,
                     final_amount=final_amount,
+                    apply_gst=effective_apply_gst,
                     invoice_url=data["invoice_url"],
                 )
                 if wallet_credit_used > 0:
@@ -335,6 +343,12 @@ class InvoiceDetailView(APIView):
             ):
                 if fld in request.data:
                     setattr(inv, fld, request.data[fld])
+            if "apply_gst" in request.data:
+                apply_gst = bool(request.data.get("apply_gst", True))
+                inv.apply_gst = apply_gst
+                if inv.job_card.apply_gst != apply_gst:
+                    inv.job_card.apply_gst = apply_gst
+                    inv.job_card.save(update_fields=["apply_gst", "updated_at"])
             inv.save()
             return Response(InvoiceSerializer(inv).data, status=status.HTTP_200_OK)
         except IntegrityError as ie:
@@ -369,6 +383,12 @@ class InvoiceDetailView(APIView):
             ):
                 if fld in request.data:
                     setattr(inv, fld, request.data[fld])
+            if "apply_gst" in request.data:
+                apply_gst = bool(request.data.get("apply_gst", True))
+                inv.apply_gst = apply_gst
+                if inv.job_card.apply_gst != apply_gst:
+                    inv.job_card.apply_gst = apply_gst
+                    inv.job_card.save(update_fields=["apply_gst", "updated_at"])
             inv.save()
             return Response(InvoiceSerializer(inv).data, status=status.HTTP_200_OK)
         except IntegrityError as ie:

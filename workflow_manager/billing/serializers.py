@@ -18,6 +18,7 @@ class InvoiceUpdateSerializer(serializers.ModelSerializer):
             "invoice_total",
             "wallet_credit_used",
             "final_amount",
+            "apply_gst",
             "wallet_transaction",
         ]
 
@@ -41,6 +42,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "invoice_total",
             "wallet_credit_used",
             "final_amount",
+            "apply_gst",
             "wallet_transaction",
             "invoice_url",
             "created_at",

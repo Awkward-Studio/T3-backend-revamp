@@ -112,6 +112,21 @@ def _safe_dt(value):
         return None
 
 
+def _safe_date(value):
+    if value in (None, ""):
+        return None
+    if hasattr(value, "isoformat") and not isinstance(value, str):
+        return value
+    try:
+        return datetime.strptime(str(value), "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _iso_date(value):
+    return value.isoformat() if value else None
+
+
 def _parse_insurance_details_payload(raw_details):
     if raw_details in (None, ""):
         return {}, ""
@@ -571,6 +586,9 @@ def serialize_jobcard(jobcard):
         "customerPhone": jobcard.customer_phone,
         "customerAddress": jobcard.customer_address,
         "customerEmail": jobcard.customer_email,
+        "companyName": jobcard.company_name,
+        "companyPhoneNumber": jobcard.company_phone_number,
+        "requiredDate": _iso_date(jobcard.required_date),
         "parts": parts_value,
         "currentParts": parts_value,
         "labour": jobcard.labour or [],
@@ -595,6 +613,7 @@ def serialize_jobcard(jobcard):
         "insuranceDetails": jobcard.insurance_details or "",
         "purposeOfVisit": jobcard.purpose_of_visit or "",
         "taxes": jobcard.taxes or [],
+        "applyGst": jobcard.apply_gst,
         "gatePassPDF": jobcard.gate_pass_pdf or "",
         "jobCardPDF": jobcard.job_card_pdf or "",
         "carFuel": jobcard.car_fuel or "",
@@ -1309,6 +1328,7 @@ def serialize_invoice(invoice):
         "invoiceTotal": float(invoice.invoice_total or 0),
         "walletCreditUsed": float(invoice.wallet_credit_used or 0),
         "finalAmount": float(invoice.final_amount or 0),
+        "applyGst": invoice.apply_gst,
         "walletTransactionId": invoice.wallet_transaction_id,
         "invoiceDate": _iso(invoice.created_at),
     }
@@ -1981,6 +2001,19 @@ class CompatJobCardsView(CompatAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        required_date_raw = request.data.get("requiredDate")
+        if required_date_raw in (None, ""):
+            return Response(
+                {"error": "requiredDate is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        required_date = _safe_date(required_date_raw)
+        if not required_date:
+            return Response(
+                {"error": "requiredDate must be a valid date in YYYY-MM-DD format."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         temp_car = get_object_or_404(
             TempCar.objects.select_related("car"), pk=request.data.get("carId")
         )
@@ -1995,6 +2028,9 @@ class CompatJobCardsView(CompatAPIView):
             "customer_phone": request.data.get("customerPhone", ""),
             "customer_address": request.data.get("customerAddress", ""),
             "customer_email": request.data.get("customerEmail", ""),
+            "company_name": request.data.get("companyName", ""),
+            "company_phone_number": request.data.get("companyPhoneNumber", ""),
+            "required_date": required_date,
             "date_of_birth": request.data.get("dateOfBirth") or None,
             "anniversary_date": request.data.get("anniversaryDate") or None,
             "insurance_policy_expiry_date": request.data.get(
@@ -2014,6 +2050,7 @@ class CompatJobCardsView(CompatAPIView):
             "bat_odometer": request.data.get("carOdometer", ""),
             "purpose_of_visit": request.data.get("purposeOfVisit", ""),
             "job_card_pdf": request.data.get("jobCardPDF", ""),
+            "apply_gst": bool(request.data.get("applyGst", True)),
             "service_advisor_id": request.data.get("serviceAdvisorID", ""),
             "assigned_technician_id": assigned_mechanic_id,
         }
@@ -2023,9 +2060,15 @@ class CompatJobCardsView(CompatAPIView):
         )
 
         if not created:
+            update_fields = []
             if jobcard.assigned_technician_id != assigned_mechanic_id:
                 jobcard.assigned_technician_id = assigned_mechanic_id
-                jobcard.save(update_fields=["assigned_technician_id", "updated_at"])
+                update_fields.append("assigned_technician_id")
+            if jobcard.required_date != required_date:
+                jobcard.required_date = required_date
+                update_fields.append("required_date")
+            if update_fields:
+                jobcard.save(update_fields=[*update_fields, "updated_at"])
 
             temp_car.car_status = 1
             temp_car.job_card_id = str(jobcard.pk)
@@ -2144,6 +2187,23 @@ class CompatJobCardDetailView(CompatAPIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+        required_date = None
+        if "requiredDate" in request.data:
+            required_date_raw = request.data.get("requiredDate")
+            if required_date_raw in (None, ""):
+                return Response(
+                    {"error": "requiredDate is required."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            required_date = _safe_date(required_date_raw)
+            if not required_date:
+                return Response(
+                    {
+                        "error": "requiredDate must be a valid date in YYYY-MM-DD format."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
         field_map = {
             "parts": "parts",
             "labour": "labour",
@@ -2167,7 +2227,10 @@ class CompatJobCardDetailView(CompatAPIView):
             "discountAmt": "discount_amount",
             "amount": "amount",
             "taxes": "taxes",
+            "applyGst": "apply_gst",
             "insuranceDetails": "insurance_details",
+            "companyName": "company_name",
+            "companyPhoneNumber": "company_phone_number",
             "gstin": "gstin",
             "observationRemarks": "observation_remarks",
             "gatePassPDF": "gate_pass_pdf",
@@ -2175,6 +2238,9 @@ class CompatJobCardDetailView(CompatAPIView):
             "callingStatus": "calling_status",
         }
         updated_fields = []
+        if required_date is not None:
+            jobcard.required_date = required_date
+            updated_fields.append("required_date")
         for source, target in field_map.items():
             if source in request.data:
                 value = request.data[source]
@@ -2899,6 +2965,13 @@ class CompatInvoicesView(CompatAPIView):
         category = request.data.get("insuranceInvoiceType", "") or ""
         normalized_invoice_type = Invoice._normalized_label(invoice_type)
 
+        requested_apply_gst = bool(request.data.get("applyGst", jobcard.apply_gst))
+        if jobcard.apply_gst != requested_apply_gst:
+            jobcard.apply_gst = requested_apply_gst
+            jobcard.save(update_fields=["apply_gst", "updated_at"])
+
+        effective_apply_gst = jobcard.apply_gst
+
         try:
             invoice_total, wallet_credit_used, final_amount = (
                 _extract_invoice_financials(request.data)
@@ -2979,6 +3052,9 @@ class CompatInvoicesView(CompatAPIView):
             if quantize_money(existing.final_amount) != final_amount:
                 existing.final_amount = final_amount
                 updated = True
+            if existing.apply_gst != effective_apply_gst:
+                existing.apply_gst = effective_apply_gst
+                updated = True
 
             if updated:
                 existing.save()
@@ -3037,6 +3113,7 @@ class CompatInvoicesView(CompatAPIView):
                 invoice_total=invoice_total,
                 wallet_credit_used=wallet_credit_used,
                 final_amount=final_amount,
+                apply_gst=effective_apply_gst,
                 invoice_url=request.data.get("invoiceUrl", ""),
             )
         except IntegrityError:

@@ -1,4 +1,5 @@
 import json
+from datetime import date
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -556,3 +557,185 @@ class InsuranceDetailsPermissionTests(TestCase):
         payload = json.loads(self.exited_jobcard.insurance_details)
         self.assertEqual(payload["surveyorName"], "Rohit Sharma")
         self.assertEqual(payload["surveyStatus"], "Not Done")
+
+
+class JobCardApplyGstTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user_model = get_user_model()
+
+        self.admin_role, _ = Role.objects.get_or_create(name=RoleName.ADMIN)
+        self.admin_user = self.user_model.objects.create_user(
+            username="admin-gst",
+            email="admin-gst@example.com",
+            password="password123",
+        )
+        self.admin_user.roles.add(self.admin_role)
+
+        self.jobcard = JobCard.objects.create(
+            car_id="JC-GST-001",
+            car_number="MH01GST0001",
+            job_card_status=2,
+            customer_name="GST Customer",
+            customer_phone="9999999991",
+            job_card_number=None,
+        )
+
+    def test_jobcard_apply_gst_defaults_true_and_patch_persists(self):
+        self.client.force_authenticate(user=self.admin_user)
+
+        detail_response = self.client.get(f"/api/compat/jobcards/{self.jobcard.pk}/")
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        self.assertTrue(detail_response.data["applyGst"])
+
+        patch_response = self.client.patch(
+            f"/api/compat/jobcards/{self.jobcard.pk}/",
+            {"applyGst": False},
+            format="json",
+        )
+
+        self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
+        self.assertFalse(patch_response.data["applyGst"])
+
+        self.jobcard.refresh_from_db()
+        self.assertFalse(self.jobcard.apply_gst)
+
+        refreshed_detail = self.client.get(f"/api/compat/jobcards/{self.jobcard.pk}/")
+        self.assertEqual(refreshed_detail.status_code, status.HTTP_200_OK)
+        self.assertFalse(refreshed_detail.data["applyGst"])
+
+
+class RequiredDateJobCardTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user_model = get_user_model()
+
+        self.service_role, _ = Role.objects.get_or_create(name=RoleName.SERVICE)
+        self.mechanic_role, _ = Role.objects.get_or_create(name=RoleName.MECHANIC)
+
+        self.service_user = self.user_model.objects.create_user(
+            username="service-required-date",
+            email="service-required-date@example.com",
+            password="password123",
+        )
+        self.service_user.roles.add(self.service_role)
+
+        self.mechanic_user = self.user_model.objects.create_user(
+            username="mechanic-required-date",
+            email="mechanic-required-date@example.com",
+            password="password123",
+        )
+        self.mechanic_user.roles.add(self.mechanic_role)
+
+        self.car = Car.objects.create(
+            car_number="MH01FF0001",
+            car_make="Tata",
+            car_model="Punch",
+            customer_name="job card date Customer",
+            customer_phone="9999999994",
+        )
+        self.temp_car = TempCar.objects.create(
+            car=self.car,
+            purpose_of_visit_and_advisors=[
+                {
+                    "description": "General Service",
+                    "advisorEmail": self.service_user.email,
+                }
+            ],
+        )
+
+    def test_required_date_is_mandatory_when_creating_jobcard(self):
+        self.client.force_authenticate(user=self.service_user)
+
+        response = self.client.post(
+            "/api/compat/jobcards/",
+            {
+                "carId": str(self.temp_car.pk),
+                "carNumber": self.car.car_number,
+                "customerName": self.car.customer_name,
+                "customerPhone": self.car.customer_phone,
+                "purposeOfVisit": "General Service",
+                "assignedMechanicId": str(self.mechanic_user.pk),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error"], "requiredDate is required.")
+
+    def test_required_date_is_saved_and_returned_in_jobcard_payloads(self):
+        self.client.force_authenticate(user=self.service_user)
+
+        response = self.client.post(
+            "/api/compat/jobcards/",
+            {
+                "carId": str(self.temp_car.pk),
+                "carNumber": self.car.car_number,
+                "customerName": self.car.customer_name,
+                "customerPhone": self.car.customer_phone,
+                "customerAddress": "Phagwara",
+                "customerEmail": "required-date@example.com",
+                "purposeOfVisit": "General Service",
+                "assignedMechanicId": str(self.mechanic_user.pk),
+                "requiredDate": "2026-06-25",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["requiredDate"], "2026-06-25")
+
+        jobcard = JobCard.objects.get(pk=response.data["$id"])
+        self.assertEqual(jobcard.required_date, date(2026, 6, 25))
+
+        detail_response = self.client.get(f"/api/compat/jobcards/{jobcard.pk}/")
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail_response.data["requiredDate"], "2026-06-25")
+
+
+class JobCardCompanyFieldsTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user_model = get_user_model()
+
+        self.admin_role, _ = Role.objects.get_or_create(name=RoleName.ADMIN)
+        self.admin_user = self.user_model.objects.create_user(
+            username="admin-company-fields",
+            email="admin-company-fields@example.com",
+            password="password123",
+        )
+        self.admin_user.roles.add(self.admin_role)
+
+        self.jobcard = JobCard.objects.create(
+            car_id="JC-COMPANY-001",
+            car_number="MH01CF0001",
+            job_card_status=2,
+            customer_name="Company Customer",
+            customer_phone="9999999990",
+            job_card_number=None,
+        )
+
+    def test_company_fields_patch_persist_and_are_returned_on_detail(self):
+        self.client.force_authenticate(user=self.admin_user)
+
+        patch_response = self.client.patch(
+            f"/api/compat/jobcards/{self.jobcard.pk}/",
+            {
+                "companyName": "ABC Logistics Pvt. Ltd.",
+                "companyPhoneNumber": "+91 9876543210",
+            },
+            format="json",
+        )
+
+        self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(patch_response.data["companyName"], "ABC Logistics Pvt. Ltd.")
+        self.assertEqual(patch_response.data["companyPhoneNumber"], "+91 9876543210")
+
+        self.jobcard.refresh_from_db()
+        self.assertEqual(self.jobcard.company_name, "ABC Logistics Pvt. Ltd.")
+        self.assertEqual(self.jobcard.company_phone_number, "+91 9876543210")
+
+        detail_response = self.client.get(f"/api/compat/jobcards/{self.jobcard.pk}/")
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail_response.data["companyName"], "ABC Logistics Pvt. Ltd.")
+        self.assertEqual(detail_response.data["companyPhoneNumber"], "+91 9876543210")

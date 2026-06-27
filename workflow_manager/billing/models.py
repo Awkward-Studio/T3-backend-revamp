@@ -59,6 +59,7 @@ class Invoice(models.Model):
         decimal_places=2,
         default=Decimal("0.00"),
     )
+    apply_gst = models.BooleanField(default=True)
     invoice_url = models.URLField()
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

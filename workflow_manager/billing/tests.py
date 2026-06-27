@@ -211,6 +211,40 @@ class CustomerWalletAPITests(TestCase):
         )
         self.assertEqual(debit_transaction.amount, Decimal("100.00"))
 
+    def test_invoice_inherits_saved_jobcard_apply_gst_preference(self):
+        car = Car.objects.create(
+            car_number="MH05GST4321",
+            customer_name="Saved GST Customer",
+            customer_phone="9898989897",
+            car_model="Dzire",
+        )
+        jobcard = self.create_jobcard_for_car(car, car_id="JC-GST-005")
+        jobcard.apply_gst = False
+        jobcard.save(update_fields=["apply_gst", "updated_at"])
+
+        self.client.force_authenticate(user=self.biller_user)
+        response = self.client.post(
+            "/api/compat/invoices/",
+            {
+                "jobCardId": str(jobcard.pk),
+                "invoiceSeries": "bds",
+                "invoiceType": "Quote",
+                "invoiceNumber": 1005,
+                "invoiceCode": "BDS/1005",
+                "invoiceUrl": "https://example.com/quote-gst-off.pdf",
+                "invoiceTotal": "400.00",
+                "walletCreditUsed": "0.00",
+                "finalAmount": "400.00",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(response.data["applyGst"])
+
+        invoice = Invoice.objects.get(job_card=jobcard)
+        self.assertFalse(invoice.apply_gst)
+
     def test_non_biller_cannot_use_wallet_credits_on_invoice(self):
         car = Car.objects.create(
             car_number="MH06KL9753",

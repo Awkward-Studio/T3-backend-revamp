@@ -2,6 +2,7 @@ import uuid
 
 from django.db import models, transaction
 from django.db.models import F
+from django.utils import timezone
 from inventory.models import Product
 from vehicle_management.models import TempCar
 
@@ -50,10 +51,13 @@ class JobCard(models.Model):
     customer_phone = models.CharField(max_length=15)
     customer_address = models.TextField(blank=True, null=True)
     customer_email = models.EmailField(blank=True, null=True)
+    company_name = models.CharField(max_length=255, blank=True, null=True)
+    company_phone_number = models.CharField(max_length=32, blank=True, null=True)
     gstin = models.CharField(max_length=20, blank=True, null=True)
     date_of_birth = models.DateField(blank=True, null=True)
     anniversary_date = models.DateField(blank=True, null=True)
     insurance_policy_expiry_date = models.DateField(blank=True, null=True)
+    required_date = models.DateField(default=timezone.localdate)
 
     # what’s done on the job
     parts = models.JSONField(default=list, blank=True)
@@ -73,6 +77,7 @@ class JobCard(models.Model):
     discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     taxes = models.JSONField(default=list, blank=True)
+    apply_gst = models.BooleanField(default=True)
 
     # PDFs, passes, etc.
     job_card_pdf = models.URLField(blank=True, null=True)

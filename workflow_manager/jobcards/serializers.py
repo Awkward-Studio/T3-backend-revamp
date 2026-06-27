@@ -27,10 +27,13 @@ class JobCardSerializer(serializers.ModelSerializer):
             "customer_phone",
             "customer_address",
             "customer_email",
+            "company_name",
+            "company_phone_number",
             "gstin",
             "date_of_birth",
             "anniversary_date",
             "insurance_policy_expiry_date",
+            "required_date",
             "parts",
             "labour",
             "labour_checklist",
@@ -44,6 +47,7 @@ class JobCardSerializer(serializers.ModelSerializer):
             "discount_amount",
             "amount",
             "taxes",
+            "apply_gst",
             "job_card_pdf",
             "gate_pass_pdf",
             "purpose_of_visit",
@@ -170,9 +174,12 @@ class JobCardSerializer(serializers.ModelSerializer):
             "customerPhone": data.get("customer_phone"),
             "customerAddress": data.get("customer_address"),
             "customerEmail": data.get("customer_email"),
+            "companyName": data.get("company_name"),
+            "companyPhoneNumber": data.get("company_phone_number"),
             "dateOfBirth": data.get("date_of_birth"),
             "anniversaryDate": data.get("anniversary_date"),
             "insurancePolicyExpiryDate": data.get("insurance_policy_expiry_date"),
+            "requiredDate": data.get("required_date"),
             "parts": parts_value,
             "currentParts": parts_value,
             "labour": data.get("labour") or [],
@@ -200,6 +207,7 @@ class JobCardSerializer(serializers.ModelSerializer):
             "totalRoundedOffAmount": total_rounded,
             "roundOffValue": round_off_value,
             "taxes": data.get("taxes") or [],
+            "applyGst": bool(data.get("apply_gst", True)),
             "workflowStatus": data.get("workflow_status"),
             "approvedItems": data.get("approved_items") or [],
             "mechanicChecklist": data.get("mechanic_checklist") or [],
@@ -213,7 +221,14 @@ class JobCardSerializer(serializers.ModelSerializer):
         }
 
         # Omit optional fields when null-ish (Appwrite-style optional fields)
-        for key in ("customerAddress", "customerEmail", "gstin", "placeOfSupply"):
+        for key in (
+            "customerAddress",
+            "customerEmail",
+            "companyName",
+            "companyPhoneNumber",
+            "gstin",
+            "placeOfSupply",
+        ):
             if out.get(key) in (None, ""):
                 out.pop(key, None)
 
