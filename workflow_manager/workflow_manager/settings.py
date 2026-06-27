@@ -203,6 +203,8 @@ STORAGES = {
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
+IMAGEKIT_PRIVATE_KEY = (os.getenv("IMAGEKIT_PRIVATE_KEY") or "").strip()
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
