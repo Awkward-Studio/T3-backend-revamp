@@ -16,7 +16,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         password = os.getenv("SEED_USER_PASSWORD", DEFAULT_PASSWORD)
         admin_email = os.getenv("ADMIN_EMAIL", "admin@example.com")
-        admin_password = os.getenv("ADMIN_PASSWORD", password)
+        admin_password = os.getenv("ADMIN_PASSWORD", "changeme")
 
         users = [
             {
