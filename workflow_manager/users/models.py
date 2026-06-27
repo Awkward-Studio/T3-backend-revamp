@@ -1,6 +1,6 @@
 # yourapp/models.py
-from django.db import models
 from django.contrib.auth.models import AbstractUser
+from django.db import models
 
 
 class RoleName:
@@ -10,6 +10,7 @@ class RoleName:
     PARTS = "parts"
     SECURITY = "security"
     CALLER = "caller"
+    MECHANIC = "mechanic"
 
     ALL = (
         ADMIN,
@@ -18,6 +19,7 @@ class RoleName:
         PARTS,
         SECURITY,
         CALLER,
+        MECHANIC,
     )
 
 
@@ -77,5 +79,3 @@ class CustomUser(AbstractUser):
     def set_single_role(self, role_name):
         role = Role.objects.get(name=role_name)
         self.roles.set([role])
-
-

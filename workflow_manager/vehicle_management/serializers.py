@@ -20,6 +20,9 @@ class CarSerializer(serializers.ModelSerializer):
             "customer_address",
             "purpose_of_visit_and_advisors",
             "customer_email",
+            "date_of_birth",
+            "anniversary_date",
+            "insurance_policy_expiry_date",
             "calling_status",
         ]
 
@@ -29,6 +32,11 @@ class CarSerializer(serializers.ModelSerializer):
         data["carsTableId"] = data.pop("cars_table_id", None)
         if data["carsTableId"] is None:
             data.pop("carsTableId", None)
+        data["dateOfBirth"] = data.pop("date_of_birth", None)
+        data["anniversaryDate"] = data.pop("anniversary_date", None)
+        data["insurancePolicyExpiryDate"] = data.pop(
+            "insurance_policy_expiry_date", None
+        )
         return data
 
 

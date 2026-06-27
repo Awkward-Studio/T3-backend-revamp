@@ -33,6 +33,8 @@ class AssetUploadBaseView(APIView):
         responses={201: UploadedAssetSerializer, 400: OpenApiResponse(description="Invalid upload")},
     )
     def post(self, request):
+        print("this should defo not break")
+        print('we are in here')
         upload = request.FILES.get("file")
         # image_data = request.files['image'].read()
         file_bytes = upload.read()

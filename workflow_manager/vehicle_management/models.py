@@ -1,6 +1,6 @@
 # yourapp/models.py
-from django.db import models
 from django.core.validators import MinValueValidator
+from django.db import models
 
 
 class Car(models.Model):
@@ -16,12 +16,26 @@ class Car(models.Model):
     customer_address = models.CharField(max_length=300, blank=True)
     purpose_of_visit_and_advisors = models.JSONField(default=list, blank=True)
     customer_email = models.EmailField(blank=True)
+    date_of_birth = models.DateField(blank=True, null=True)
+    anniversary_date = models.DateField(blank=True, null=True)
+    insurance_policy_expiry_date = models.DateField(blank=True, null=True)
     calling_status = models.IntegerField(default=0, validators=[MinValueValidator(0)])
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"{self.car_number} ({self.car_make} {self.car_model})"
+
+
+class CustomerPortal(models.Model):
+    car = models.OneToOneField(
+        Car, on_delete=models.CASCADE, related_name="customer_portal"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"CustomerPortal for {self.car.car_number}"
 
 
 class TempCar(models.Model):
