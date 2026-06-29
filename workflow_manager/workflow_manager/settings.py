@@ -231,6 +231,7 @@ REST_FRAMEWORK = {
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "https://t3-new-demo.vercel.app",
 ] + env_list("CORS_ALLOWED_ORIGINS")
 CORS_ALLOW_CREDENTIALS = True
 
@@ -239,6 +240,7 @@ CORS_ALLOW_CREDENTIALS = True
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "https://t3-new-demo.vercel.app",
 ] + env_list("CSRF_TRUSTED_ORIGINS")
 
 if os.getenv("RAILWAY_PUBLIC_DOMAIN"):
