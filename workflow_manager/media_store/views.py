@@ -12,7 +12,6 @@ from rest_framework.views import APIView
 from .models import UploadedAsset
 from .serializers import UploadedAssetSerializer
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -30,6 +29,7 @@ def get_imagekit_response_url(response):
 
 class AssetUploadBaseView(APIView):
     permission_classes = [permissions.AllowAny]
+    authentication_classes = []
     asset_kind = None
     tag_name = "Uploads"
 
