@@ -22,6 +22,12 @@ def get_imagekit_client():
     return ImageKit(private_key=settings.IMAGEKIT_PRIVATE_KEY)
 
 
+def get_imagekit_response_url(response):
+    if isinstance(response, dict):
+        return response.get("url")
+    return getattr(response, "url", None)
+
+
 class AssetUploadBaseView(APIView):
     permission_classes = [permissions.AllowAny]
     asset_kind = None
@@ -56,6 +62,8 @@ class AssetUploadBaseView(APIView):
             response = imagekit.files.upload(
                 file=upload.read(),
                 file_name=upload.name,
+                folder=f"/{self.asset_kind}",
+                use_unique_file_name=True,
             )
         except APIStatusError as exc:
             upstream_status = getattr(exc, "status_code", None)
@@ -80,10 +88,18 @@ class AssetUploadBaseView(APIView):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
+        file_url = get_imagekit_response_url(response)
+        if not file_url:
+            logger.error("ImageKit upload returned no URL. Response: %r", response)
+            return Response(
+                {"error": "ImageKit upload did not return a file URL."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
         try:
             asset = UploadedAsset.objects.create(
                 kind=self.asset_kind,
-                file_url=response.url,
+                file_url=file_url,
                 original_name=upload.name,
                 content_type=getattr(upload, "content_type", "") or "",
             )

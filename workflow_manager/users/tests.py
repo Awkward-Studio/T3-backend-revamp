@@ -19,6 +19,7 @@ class SeedDefaultUsersTests(TestCase):
             "parts@example.com": RoleName.PARTS,
             "security@example.com": RoleName.SECURITY,
             "caller@example.com": RoleName.CALLER,
+            "mechanic@example.com": RoleName.MECHANIC,
         }
 
         self.assertEqual(User.objects.count(), len(expected_users))

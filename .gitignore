@@ -2,7 +2,6 @@ env
 /env
 ./backendREADME.md
 venv
-migrations
 media
 staticfiles
 *.pyc

@@ -16,7 +16,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         password = os.getenv("SEED_USER_PASSWORD", DEFAULT_PASSWORD)
         admin_email = os.getenv("ADMIN_EMAIL", "admin@example.com")
-        admin_password = os.getenv("ADMIN_PASSWORD", "changeme")
+        admin_password = os.getenv("ADMIN_PASSWORD", password)
 
         users = [
             {
@@ -31,6 +31,7 @@ class Command(BaseCommand):
             {"email": "parts@example.com", "password": password, "role": RoleName.PARTS},
             {"email": "security@example.com", "password": password, "role": RoleName.SECURITY},
             {"email": "caller@example.com", "password": password, "role": RoleName.CALLER},
+            {"email": "mechanic@example.com", "password": password, "role": RoleName.MECHANIC},
         ]
 
         User = get_user_model()
@@ -63,6 +64,7 @@ class Command(BaseCommand):
 
                 user.username = email
                 user.email = email
+                user.set_password(user_config["password"])
                 user.is_active = True
                 user.is_staff = user_config.get("is_staff", False)
                 user.is_superuser = user_config.get("is_superuser", False)

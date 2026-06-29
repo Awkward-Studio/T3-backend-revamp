@@ -11,7 +11,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         email = os.getenv("ADMIN_EMAIL", "admin@example.com")
-        password = os.getenv("ADMIN_PASSWORD", "changeme")
+        password = os.getenv("ADMIN_PASSWORD") or os.getenv("SEED_USER_PASSWORD", "Example@2026")
         reset_password = os.getenv("RESET_ADMIN_PASSWORD", "").lower() in {
             "1",
             "true",
