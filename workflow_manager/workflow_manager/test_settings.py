@@ -6,4 +6,4 @@ MIDDLEWARE = [
     if middleware != "whitenoise.middleware.WhiteNoiseMiddleware"
 ]
 
-STATICFILES_STORAGE = "django.contrib.staticfiles.storage.StaticFilesStorage"
+STORAGES["staticfiles"]["BACKEND"] = "django.contrib.staticfiles.storage.StaticFilesStorage"

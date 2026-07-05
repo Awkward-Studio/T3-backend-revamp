@@ -18,8 +18,10 @@ from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+REPO_DIR = BASE_DIR.parent
 
 load_dotenv(BASE_DIR / ".env")
+load_dotenv(REPO_DIR / ".env")
 
 
 def env_bool(name, default=False):
@@ -203,7 +205,42 @@ STORAGES = {
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
-IMAGEKIT_PRIVATE_KEY = (os.getenv("IMAGEKIT_PRIVATE_KEY") or "").strip()
+STORAGE_BUCKET_NAME = (
+    os.getenv("RAILWAY_BUCKET_NAME")
+    or os.getenv("BUCKET")
+    or os.getenv("STORAGE_BUCKET_NAME")
+    or os.getenv("AWS_STORAGE_BUCKET_NAME")
+    or os.getenv("S3_BUCKET_NAME")
+    or ""
+).strip()
+STORAGE_ACCESS_KEY_ID = (
+    os.getenv("ACCESS_KEY_ID")
+    or os.getenv("STORAGE_ACCESS_KEY_ID")
+    or os.getenv("AWS_ACCESS_KEY_ID")
+    or ""
+).strip()
+STORAGE_SECRET_ACCESS_KEY = (
+    os.getenv("SECRET_ACCESS_KEY")
+    or os.getenv("STORAGE_SECRET_ACCESS_KEY")
+    or os.getenv("AWS_SECRET_ACCESS_KEY")
+    or ""
+).strip()
+STORAGE_REGION = (
+    os.getenv("REGION") or os.getenv("STORAGE_REGION") or os.getenv("AWS_REGION") or "auto"
+).strip()
+STORAGE_ENDPOINT_URL = (
+    os.getenv("RAILWAY_BUCKET_ENDPOINT_URL")
+    or os.getenv("ENDPOINT")
+    or os.getenv("STORAGE_ENDPOINT_URL")
+    or os.getenv("AWS_S3_ENDPOINT_URL")
+    or "https://storage.railway.app"
+).strip()
+STORAGE_S3_ADDRESSING_STYLE = (
+    os.getenv("STORAGE_S3_ADDRESSING_STYLE") or "virtual"
+).strip()
+STORAGE_PRESIGNED_URL_TTL_SECONDS = int(
+    os.getenv("STORAGE_PRESIGNED_URL_TTL_SECONDS", "3600")
+)
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

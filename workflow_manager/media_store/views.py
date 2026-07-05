@@ -1,10 +1,16 @@
 import logging
+import os
+from urllib.parse import urlparse
 
+import boto3
+from botocore.config import Config
+from botocore.exceptions import BotoCoreError, ClientError
 from django.conf import settings
 from django.db import DatabaseError
+from django.http import Http404, HttpResponseRedirect
+from django.urls import reverse
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from imagekitio import APIConnectionError, APIStatusError, ImageKit
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -15,16 +21,55 @@ from .serializers import UploadedAssetSerializer
 logger = logging.getLogger(__name__)
 
 
-def get_imagekit_client():
-    if not settings.IMAGEKIT_PRIVATE_KEY:
+def get_s3_client():
+    if not all(
+        [
+            settings.STORAGE_ACCESS_KEY_ID,
+            settings.STORAGE_SECRET_ACCESS_KEY,
+            settings.STORAGE_BUCKET_NAME,
+            settings.STORAGE_ENDPOINT_URL,
+        ]
+    ):
         return None
-    return ImageKit(private_key=settings.IMAGEKIT_PRIVATE_KEY)
+    return boto3.client(
+        "s3",
+        endpoint_url=settings.STORAGE_ENDPOINT_URL,
+        region_name=settings.STORAGE_REGION,
+        aws_access_key_id=settings.STORAGE_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.STORAGE_SECRET_ACCESS_KEY,
+        config=Config(
+            signature_version="s3v4",
+            s3={"addressing_style": settings.STORAGE_S3_ADDRESSING_STYLE},
+        ),
+    )
 
 
-def get_imagekit_response_url(response):
-    if isinstance(response, dict):
-        return response.get("url")
-    return getattr(response, "url", None)
+def get_asset_object_key(asset, filename):
+    extension = os.path.splitext(filename or "")[1]
+    return f"{asset.kind}/{asset.id}{extension}"
+
+
+def get_asset_file_path(asset):
+    return reverse("upload-asset-file", kwargs={"asset_id": asset.id})
+
+
+def is_external_url(url):
+    parsed = urlparse(url or "")
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+def generate_presigned_asset_url(asset):
+    client = get_s3_client()
+    if client is None:
+        return None
+    return client.generate_presigned_url(
+        "get_object",
+        Params={
+            "Bucket": settings.STORAGE_BUCKET_NAME,
+            "Key": get_asset_object_key(asset, asset.original_name),
+        },
+        ExpiresIn=settings.STORAGE_PRESIGNED_URL_TTL_SECONDS,
+    )
 
 
 class AssetUploadBaseView(APIView):
@@ -50,59 +95,51 @@ class AssetUploadBaseView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        imagekit = get_imagekit_client()
-        if imagekit is None:
-            logger.error("IMAGEKIT_PRIVATE_KEY is not configured.")
+        s3 = get_s3_client()
+        if s3 is None:
+            logger.error("Storage bucket credentials are not configured.")
             return Response(
-                {"error": "ImageKit is not configured on this server."},
+                {"error": "Storage bucket is not configured on this server."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+        asset = UploadedAsset(
+            kind=self.asset_kind,
+            original_name=upload.name,
+            content_type=getattr(upload, "content_type", "") or "",
+        )
+        object_key = get_asset_object_key(asset, upload.name)
+
         try:
-            response = imagekit.files.upload(
-                file=upload.read(),
-                file_name=upload.name,
-                folder=f"/{self.asset_kind}",
-                use_unique_file_name=True,
+            upload.seek(0)
+            extra_args = {}
+            if asset.content_type:
+                extra_args["ContentType"] = asset.content_type
+            s3.upload_fileobj(
+                upload,
+                settings.STORAGE_BUCKET_NAME,
+                object_key,
+                ExtraArgs=extra_args or None,
             )
-        except APIStatusError as exc:
-            upstream_status = getattr(exc, "status_code", None)
-            logger.exception("ImageKit upload failed with status %s.", upstream_status)
+        except (BotoCoreError, ClientError) as exc:
+            logger.exception("Storage bucket upload failed.")
             return Response(
                 {
-                    "error": "ImageKit rejected the upload.",
-                    "upstreamStatus": upstream_status,
+                    "error": "Storage bucket rejected the upload.",
+                    "upstreamError": str(exc),
                 },
                 status=status.HTTP_502_BAD_GATEWAY,
             )
-        except APIConnectionError:
-            logger.exception("Could not connect to ImageKit.")
-            return Response(
-                {"error": "Could not connect to ImageKit."},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
         except Exception:
-            logger.exception("Unexpected ImageKit upload error.")
+            logger.exception("Unexpected storage bucket upload error.")
             return Response(
-                {"error": "Unexpected ImageKit upload error."},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-
-        file_url = get_imagekit_response_url(response)
-        if not file_url:
-            logger.error("ImageKit upload returned no URL. Response: %r", response)
-            return Response(
-                {"error": "ImageKit upload did not return a file URL."},
+                {"error": "Unexpected storage bucket upload error."},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
         try:
-            asset = UploadedAsset.objects.create(
-                kind=self.asset_kind,
-                file_url=file_url,
-                original_name=upload.name,
-                content_type=getattr(upload, "content_type", "") or "",
-            )
+            asset.file_url = get_asset_file_path(asset)
+            asset.save()
         except DatabaseError as exc:
             return Response(
                 {"error": f"Unable to save upload: {exc}"},
@@ -146,3 +183,33 @@ class AssetUrlView(APIView):
         asset = get_object_or_404(UploadedAsset, pk=asset_id)
         serializer = UploadedAssetSerializer(asset, context={"request": request})
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class AssetFileRedirectView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    @extend_schema(
+        summary="Open uploaded asset file",
+        description="Redirect to a temporary bucket URL for an uploaded asset file.",
+        tags=["Uploads"],
+        responses={
+            302: OpenApiResponse(description="Redirect to file URL"),
+            404: OpenApiResponse(description="Not found"),
+        },
+    )
+    def get(self, request, asset_id):
+        asset = get_object_or_404(UploadedAsset, pk=asset_id)
+        if not asset.file_url:
+            raise Http404
+
+        if is_external_url(asset.file_url):
+            return HttpResponseRedirect(asset.file_url)
+
+        presigned_url = generate_presigned_asset_url(asset)
+        if not presigned_url:
+            logger.error("Storage bucket credentials are not configured.")
+            return Response(
+                {"error": "Storage bucket is not configured on this server."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        return HttpResponseRedirect(presigned_url)
