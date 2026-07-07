@@ -28,7 +28,6 @@ class JobCard(models.Model):
 
     car_id = models.CharField(
         max_length=100,
-        unique=True,
         help_text="External/business-facing jobcard identifier",
     )
 
@@ -416,3 +415,23 @@ class ApprovalItem(models.Model):
 
     def __str__(self):
         return f"{self.item_type}: {self.name}"
+
+
+class DeletedJobCard(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    job_card_snapshot = models.JSONField(blank=True, null=True)
+    reason = models.TextField(blank=True)
+    raw_details = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField()
+    updated_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        if isinstance(self.job_card_snapshot, dict):
+            number = self.job_card_snapshot.get("jobCardNumber")
+            car_number = self.job_card_snapshot.get("carNumber")
+            if number or car_number:
+                return f"DeletedJobCard {number or ''} {car_number or ''}".strip()
+        return f"DeletedJobCard {self.id}"

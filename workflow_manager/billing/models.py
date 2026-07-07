@@ -10,8 +10,8 @@ from vehicle_management.models import Car
 
 class InvoiceCounter(models.Model):
     SERIES_CHOICES = [
-        ("bds", "BDS"),
-        ("src", "SRC"),
+        ("BDS", "BDS"),
+        ("SER", "SER"),
     ]
 
     series = models.CharField(max_length=10, choices=SERIES_CHOICES, unique=True)
@@ -65,7 +65,6 @@ class Invoice(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ("invoice_series", "invoice_type", "invoice_number")
         ordering = ["invoice_series", "invoice_type", "invoice_number"]
 
     def __str__(self):

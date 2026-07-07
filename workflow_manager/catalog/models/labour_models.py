@@ -5,7 +5,7 @@ from django.db import models
 class Labour(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     labour_name = models.CharField(max_length=255)
-    labour_code = models.CharField(max_length=50, unique=True, blank=True, null=True)
+    labour_code = models.CharField(max_length=50, blank=True, null=True)
     hsn = models.CharField(max_length=20)
     category = models.CharField(max_length=100, blank=True, null=True)
     mrp = models.DecimalField(max_digits=10, decimal_places=2)
