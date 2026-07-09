@@ -1,3 +1,6 @@
+from typing import List, Optional
+
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .models import CustomUser, Label, Role, RoleName
@@ -50,10 +53,12 @@ class UserSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id"]
 
-    def get_current_role(self, obj):
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_current_role(self, obj) -> Optional[str]:
         return obj.get_primary_role()
 
-    def get_advisor_roles(self, obj):
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_advisor_roles(self, obj) -> List[str]:
         return extract_advisor_roles(obj.preferences)
 
     def validate_email(self, value):

@@ -1,16 +1,12 @@
-# yourapp/views.py
+from django.db import DatabaseError, IntegrityError
 from django.shortcuts import get_object_or_404
-from rest_framework.views import APIView
+from drf_spectacular.utils import extend_schema, extend_schema_view
+from rest_framework import permissions, status
+from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
-from rest_framework import status, permissions
-from django.db import IntegrityError, DatabaseError
 
 from .models import Car, TempCar
 from .serializers import CarSerializer, TempCarSerializer
-from drf_spectacular.utils import extend_schema, extend_schema_view
-
-
-# ─── CARS ────────────────────────────────────────────────────
 
 
 @extend_schema_view(
@@ -18,17 +14,18 @@ from drf_spectacular.utils import extend_schema, extend_schema_view
         summary="List all cars",
         description="Retrieve a list of all cars.",
         tags=["Cars"],
+        responses={200: CarSerializer(many=True)},
     ),
 )
-class CarListView(APIView):
+class CarListView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CarSerializer
 
     def get(self, request):
         try:
             cars = Car.objects.all()
-            serializer = CarSerializer(cars, many=True)
+            serializer = self.get_serializer(cars, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
-
         except DatabaseError:
             return Response(
                 {"error": "Could not fetch cars at this time."},
@@ -36,8 +33,9 @@ class CarListView(APIView):
             )
 
 
-class CarCreateView(APIView):
+class CarCreateView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CarSerializer
 
     @extend_schema(
         summary="Create a new car",
@@ -47,14 +45,16 @@ class CarCreateView(APIView):
         responses={201: CarSerializer},
     )
     def post(self, request):
-        serializer = CarSerializer(data=request.data)
+        serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             car = serializer.save()
-            return Response(CarSerializer(car).data, status=status.HTTP_201_CREATED)
-        except IntegrityError as e:
+            return Response(
+                self.get_serializer(car).data, status=status.HTTP_201_CREATED
+            )
+        except IntegrityError:
             return Response(
                 {"error": "A car with that number already exists."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -66,22 +66,25 @@ class CarCreateView(APIView):
             )
 
 
-class CarDetailView(APIView):
+class CarDetailView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CarSerializer
 
     @extend_schema(
         summary="Retrieve a car",
         description="Get detailed information about a specific car.",
         tags=["Cars"],
+        responses={200: CarSerializer},
     )
     def get(self, request, pk):
         car = get_object_or_404(Car, pk=pk)
-        serializer = CarSerializer(car)
+        serializer = self.get_serializer(car)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class CarUpdateView(APIView):
+class CarUpdateView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CarSerializer
 
     @extend_schema(
         summary="Update a car",
@@ -92,13 +95,13 @@ class CarUpdateView(APIView):
     )
     def put(self, request, pk):
         car = get_object_or_404(Car, pk=pk)
-        serializer = CarSerializer(car, data=request.data)
+        serializer = self.get_serializer(car, data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             car = serializer.save()
-            return Response(CarSerializer(car).data, status=status.HTTP_200_OK)
+            return Response(self.get_serializer(car).data, status=status.HTTP_200_OK)
         except IntegrityError:
             return Response(
                 {"error": "That car number conflicts with an existing record."},
@@ -119,13 +122,13 @@ class CarUpdateView(APIView):
     )
     def patch(self, request, pk):
         car = get_object_or_404(Car, pk=pk)
-        serializer = CarSerializer(car, data=request.data, partial=True)
+        serializer = self.get_serializer(car, data=request.data, partial=True)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             car = serializer.save()
-            return Response(CarSerializer(car).data, status=status.HTTP_200_OK)
+            return Response(self.get_serializer(car).data, status=status.HTTP_200_OK)
         except IntegrityError:
             return Response(
                 {"error": "That car number conflicts with an existing record."},
@@ -138,13 +141,15 @@ class CarUpdateView(APIView):
             )
 
 
-class CarDeleteView(APIView):
+class CarDeleteView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CarSerializer
 
     @extend_schema(
         summary="Delete a car",
         description="Delete a car record.",
         tags=["Cars"],
+        responses={204: None},
     )
     def delete(self, request, pk):
         car = get_object_or_404(Car, pk=pk)
@@ -158,23 +163,22 @@ class CarDeleteView(APIView):
             )
 
 
-# ─── TEMP CARS ───────────────────────────────────────────────
-
-
 @extend_schema_view(
     get=extend_schema(
         summary="List all temp cars",
         description="Retrieve a list of all temp cars.",
         tags=["TempCars"],
+        responses={200: TempCarSerializer(many=True)},
     ),
 )
-class TempCarListView(APIView):
+class TempCarListView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = TempCarSerializer
 
     def get(self, request):
         try:
             temps = TempCar.objects.select_related("car").all()
-            serializer = TempCarSerializer(temps, many=True)
+            serializer = self.get_serializer(temps, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
         except DatabaseError:
             return Response(
@@ -183,8 +187,9 @@ class TempCarListView(APIView):
             )
 
 
-class TempCarCreateView(APIView):
+class TempCarCreateView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = TempCarSerializer
 
     @extend_schema(
         summary="Create a new temp car",
@@ -194,14 +199,14 @@ class TempCarCreateView(APIView):
         responses={201: TempCarSerializer},
     )
     def post(self, request):
-        serializer = TempCarSerializer(data=request.data)
+        serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             temp = serializer.save()
             return Response(
-                TempCarSerializer(temp).data, status=status.HTTP_201_CREATED
+                self.get_serializer(temp).data, status=status.HTTP_201_CREATED
             )
         except IntegrityError:
             return Response(
@@ -215,22 +220,25 @@ class TempCarCreateView(APIView):
             )
 
 
-class TempCarDetailView(APIView):
+class TempCarDetailView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = TempCarSerializer
 
     @extend_schema(
         summary="Retrieve a temp car",
         description="Get detailed information about a specific temp car.",
         tags=["TempCars"],
+        responses={200: TempCarSerializer},
     )
     def get(self, request, pk):
         temp = get_object_or_404(TempCar, pk=pk)
-        serializer = TempCarSerializer(temp)
+        serializer = self.get_serializer(temp)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class TempCarUpdateView(APIView):
+class TempCarUpdateView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = TempCarSerializer
 
     @extend_schema(
         summary="Update a temp car",
@@ -241,13 +249,13 @@ class TempCarUpdateView(APIView):
     )
     def put(self, request, pk):
         temp = get_object_or_404(TempCar, pk=pk)
-        serializer = TempCarSerializer(temp, data=request.data)
+        serializer = self.get_serializer(temp, data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             temp = serializer.save()
-            return Response(TempCarSerializer(temp).data, status=status.HTTP_200_OK)
+            return Response(self.get_serializer(temp).data, status=status.HTTP_200_OK)
         except IntegrityError:
             return Response(
                 {"error": "Integrity error updating temp car."},
@@ -268,13 +276,13 @@ class TempCarUpdateView(APIView):
     )
     def patch(self, request, pk):
         temp = get_object_or_404(TempCar, pk=pk)
-        serializer = TempCarSerializer(temp, data=request.data, partial=True)
+        serializer = self.get_serializer(temp, data=request.data, partial=True)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             temp = serializer.save()
-            return Response(TempCarSerializer(temp).data, status=status.HTTP_200_OK)
+            return Response(self.get_serializer(temp).data, status=status.HTTP_200_OK)
         except IntegrityError:
             return Response(
                 {"error": "Integrity error patching temp car."},
@@ -287,14 +295,15 @@ class TempCarUpdateView(APIView):
             )
 
 
-class TempCarDeleteView(APIView):
-    # TODO: Add jobcard data transfer
+class TempCarDeleteView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = TempCarSerializer
 
     @extend_schema(
         summary="Delete a temp car",
         description="Delete a temp car record.",
         tags=["TempCars"],
+        responses={204: None},
     )
     def delete(self, request, pk):
         temp = get_object_or_404(TempCar, pk=pk)

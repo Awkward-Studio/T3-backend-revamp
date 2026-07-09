@@ -6,7 +6,8 @@ from django.db.models import CharField, DecimalField, Q, Sum, Value
 from django.db.models.functions import Coalesce, Replace, Upper
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer
 from inventory.services import (
     StockError,
     consume_jobcard_inventory,
@@ -15,8 +16,8 @@ from inventory.services import (
 from jobcards.models import JobCard
 from rest_framework import permissions, serializers, status
 from rest_framework.exceptions import NotFound
+from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
-from rest_framework.views import APIView
 from users.models import RoleName
 from users.permissions import IsBillerOnly, IsBillerOrAdmin
 from vehicle_management.models import Car
@@ -95,13 +96,15 @@ def user_can_apply_wallet_credits(user) -> bool:
 
 
 # @TODO: use serializers
-class GetNextInvoiceNumberView(APIView):
+class GetNextInvoiceNumberView(GenericAPIView):
     permission_classes = [IsBillerOrAdmin]
+    serializer_class = InvoiceSerializer
 
     @extend_schema(
         summary="Get next invoice number",
         description="Retrieve the next invoice number for a given job card and invoice series/type.",
         tags=["Invoices"],
+        responses={200: OpenApiTypes.ANY},
     )
     def get(self, request, jobcard_id):
 
@@ -139,13 +142,16 @@ class GetNextInvoiceNumberView(APIView):
             )
 
 
-class CreateInvoiceView(APIView):
+class CreateInvoiceView(GenericAPIView):
     permission_classes = [IsBillerOrAdmin]
+    serializer_class = InvoiceSerializer
 
     @extend_schema(
         summary="Create a new invoice",
         description="Create a new invoice record for a job card.",
         tags=["Invoices"],
+        request=OpenApiTypes.OBJECT,
+        responses={201: InvoiceSerializer},
     )
     def post(self, request):
         """
@@ -267,13 +273,15 @@ class CreateInvoiceView(APIView):
         return Response(InvoiceSerializer(inv).data, status=status.HTTP_201_CREATED)
 
 
-class InvoiceListView(APIView):
+class InvoiceListView(GenericAPIView):
     permission_classes = [IsBillerOrAdmin]
+    serializer_class = InvoiceSerializer
 
     @extend_schema(
         summary="List invoices for a job card",
         description="Retrieve a list of invoices for a specific job card.",
         tags=["Invoices"],
+        responses={200: InvoiceSerializer(many=True)},
     )
     def get(self, request, jobcard_id):
         """
@@ -299,13 +307,15 @@ class InvoiceListView(APIView):
             )
 
 
-class InvoiceDetailView(APIView):
+class InvoiceDetailView(GenericAPIView):
     permission_classes = [IsBillerOrAdmin]
+    serializer_class = InvoiceSerializer
 
     @extend_schema(
         summary="Retrieve an invoice",
         description="Get detailed information about a specific invoice.",
         tags=["Invoices"],
+        responses={200: InvoiceSerializer},
     )
     def get(self, request, invoice_id):
         try:
@@ -326,6 +336,8 @@ class InvoiceDetailView(APIView):
         summary="Update an invoice",
         description="Update all fields of an invoice record that are allowed to be modified.",
         tags=["Invoices"],
+        request=OpenApiTypes.OBJECT,
+        responses={200: InvoiceSerializer},
     )
     def put(self, request, invoice_id):
         """
@@ -366,6 +378,8 @@ class InvoiceDetailView(APIView):
         summary="Partially update an invoice",
         description="Update specific fields of an invoice record that are allowed to be modified.",
         tags=["Invoices"],
+        request=OpenApiTypes.OBJECT,
+        responses={200: InvoiceSerializer},
     )
     def patch(self, request, invoice_id):
         """
@@ -406,6 +420,7 @@ class InvoiceDetailView(APIView):
         summary="Delete an invoice",
         description="Delete an invoice record.",
         tags=["Invoices"],
+        responses={204: None},
     )
     def delete(self, request, invoice_id):
         """
@@ -442,13 +457,15 @@ def get_pagination_values(request, *, default_page_size=10, max_page_size=100):
     return page, page_size
 
 
-class CustomerWalletListView(APIView):
+class CustomerWalletListView(GenericAPIView):
     permission_classes = [IsBillerOnly]
+    serializer_class = CustomerWalletSerializer
 
     @extend_schema(
         summary="List customer wallets",
         description="List permanent-car wallets with optional search and pagination.",
         tags=["Wallets"],
+        responses={200: OpenApiTypes.ANY},
     )
     def get(self, request):
         license_plate = request.query_params.get("license_plate")
@@ -503,13 +520,15 @@ class CustomerWalletListView(APIView):
         )
 
 
-class CustomerWalletDetailView(APIView):
+class CustomerWalletDetailView(GenericAPIView):
     permission_classes = [IsBillerOnly]
+    serializer_class = CustomerWalletSerializer
 
     @extend_schema(
         summary="Retrieve customer wallet history",
         description="Get a permanent car wallet summary and paginated transaction history.",
         tags=["Wallets"],
+        responses={200: OpenApiTypes.ANY},
     )
     def get(self, request, car_id):
         car = get_object_or_404(Car, pk=car_id)
@@ -539,14 +558,16 @@ class CustomerWalletDetailView(APIView):
         )
 
 
-class CustomerWalletAddCreditView(APIView):
+class CustomerWalletAddCreditView(GenericAPIView):
     permission_classes = [IsBillerOnly]
+    serializer_class = AddWalletCreditSerializer
 
     @extend_schema(
         summary="Add customer wallet credit",
         description="Add a credit note or other wallet credit to a permanent car wallet.",
         tags=["Wallets"],
         request=AddWalletCreditSerializer,
+        responses={201: OpenApiTypes.ANY},
     )
     def post(self, request, car_id):
         car = get_object_or_404(Car, pk=car_id)

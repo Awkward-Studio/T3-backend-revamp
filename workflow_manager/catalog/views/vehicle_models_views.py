@@ -1,12 +1,12 @@
+from django.db import DatabaseError, IntegrityError, transaction
 from django.shortcuts import get_object_or_404
-from rest_framework.views import APIView
+from drf_spectacular.utils import extend_schema, extend_schema_view
+from rest_framework import permissions, status
+from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
-from rest_framework import status, permissions
-from django.db import IntegrityError, DatabaseError, transaction
 
 from catalog.models.vehicle_models_model import VehilceModel
 from catalog.serializers.vehicle_models_serializers import VehicleModelSerializer
-from drf_spectacular.utils import extend_schema, extend_schema_view
 
 
 @extend_schema_view(
@@ -14,18 +14,17 @@ from drf_spectacular.utils import extend_schema, extend_schema_view
         summary="List all vehicle models",
         description="Retrieve a list of all vehicle make/model entries.",
         tags=["VehicleModels"],
+        responses={200: VehicleModelSerializer(many=True)},
     ),
 )
-class VehicleModelsListView(APIView):
+class VehicleModelsListView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = VehicleModelSerializer
 
     def get(self, request):
-        """
-        GET /api/vehicleModels/
-        """
         try:
-            vehicleModels = VehilceModel.objects.all()
-            serializer = VehicleModelSerializer(vehicleModels, many=True)
+            vehicle_models = VehilceModel.objects.all()
+            serializer = self.get_serializer(vehicle_models, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
         except DatabaseError as e:
             return Response(
@@ -34,8 +33,9 @@ class VehicleModelsListView(APIView):
             )
 
 
-class VehicleModelsCreateView(APIView):
+class VehicleModelsCreateView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = VehicleModelSerializer
 
     @extend_schema(
         summary="Create a vehicle model entry",
@@ -45,23 +45,15 @@ class VehicleModelsCreateView(APIView):
         responses={201: VehicleModelSerializer},
     )
     def post(self, request):
-        """
-        POST /api/vehicleModel/create/
-        {
-          "make": "Audi",
-          "models": ["A4","Q5","TT"]
-        }
-        """
-        serializer = VehicleModelSerializer(data=request.data)
+        serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             with transaction.atomic():
-                vehicleModel = serializer.save()
+                vehicle_model = serializer.save()
             return Response(
-                VehicleModelSerializer(vehicleModel).data,
-                status=status.HTTP_201_CREATED,
+                self.get_serializer(vehicle_model).data, status=status.HTTP_201_CREATED
             )
         except IntegrityError as e:
             return Response(
@@ -75,21 +67,20 @@ class VehicleModelsCreateView(APIView):
             )
 
 
-class VehicleModelsDetailView(APIView):
+class VehicleModelsDetailView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = VehicleModelSerializer
 
     @extend_schema(
         summary="Retrieve a vehicle model entry",
         description="Get detailed information about a specific vehicle make/model entry.",
         tags=["VehicleModels"],
+        responses={200: VehicleModelSerializer},
     )
     def get(self, request, pk):
-        """
-        GET /api/vehicleModels/{pk}/
-        """
-        vehicleModel = get_object_or_404(VehilceModel, id=pk)
+        vehicle_model = get_object_or_404(VehilceModel, id=pk)
         return Response(
-            VehicleModelSerializer(vehicleModel).data, status=status.HTTP_200_OK
+            self.get_serializer(vehicle_model).data, status=status.HTTP_200_OK
         )
 
     @extend_schema(
@@ -100,12 +91,8 @@ class VehicleModelsDetailView(APIView):
         responses={200: VehicleModelSerializer},
     )
     def put(self, request, pk):
-        """
-        PUT /api/vehicleModels/{pk}/update/
-        Full update of make and models.
-        """
-        vehicleModel = get_object_or_404(VehilceModel, id=pk)
-        serializer = VehicleModelSerializer(vehicleModel, data=request.data)
+        vehicle_model = get_object_or_404(VehilceModel, id=pk)
+        serializer = self.get_serializer(vehicle_model, data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -113,7 +100,7 @@ class VehicleModelsDetailView(APIView):
             with transaction.atomic():
                 updated = serializer.save()
             return Response(
-                VehicleModelSerializer(updated).data, status=status.HTTP_200_OK
+                self.get_serializer(updated).data, status=status.HTTP_200_OK
             )
         except IntegrityError as e:
             return Response(
@@ -134,14 +121,8 @@ class VehicleModelsDetailView(APIView):
         responses={200: VehicleModelSerializer},
     )
     def patch(self, request, pk):
-        """
-        PATCH /api/vehicleModels/{pk}/partial-update/
-        Partial update of make or models.
-        """
-        vehicleModel = get_object_or_404(VehilceModel, id=pk)
-        serializer = VehicleModelSerializer(
-            vehicleModel, data=request.data, partial=True
-        )
+        vehicle_model = get_object_or_404(VehilceModel, id=pk)
+        serializer = self.get_serializer(vehicle_model, data=request.data, partial=True)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -149,7 +130,7 @@ class VehicleModelsDetailView(APIView):
             with transaction.atomic():
                 updated = serializer.save()
             return Response(
-                VehicleModelSerializer(updated).data, status=status.HTTP_200_OK
+                self.get_serializer(updated).data, status=status.HTTP_200_OK
             )
         except IntegrityError as e:
             return Response(
@@ -166,14 +147,12 @@ class VehicleModelsDetailView(APIView):
         summary="Delete a vehicle model entry",
         description="Delete a vehicle make/model entry.",
         tags=["VehicleModels"],
+        responses={204: None},
     )
     def delete(self, request, pk):
-        """
-        DELETE /api/vehicleModel/{pk}/delete/
-        """
-        vehicleModel = get_object_or_404(VehilceModel, id=pk)
+        vehicle_model = get_object_or_404(VehilceModel, id=pk)
         try:
-            vehicleModel.delete()
+            vehicle_model.delete()
             return Response(status=status.HTTP_204_NO_CONTENT)
         except DatabaseError as e:
             return Response(

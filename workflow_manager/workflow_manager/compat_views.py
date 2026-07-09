@@ -24,6 +24,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from inventory.models import Product
 from inventory.services import (
@@ -41,8 +42,8 @@ from jobcards.models import ApprovalItem, CurrentPart, CustomerApproval, JobCard
 from jobcards.services import JobCardPartError, save_jobcard_parts
 from rest_framework import permissions, serializers, status
 from rest_framework.authentication import BasicAuthentication, SessionAuthentication
+from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
-from rest_framework.views import APIView
 from users.models import CustomUser, RoleName
 from users.permissions import IsAdmin, IsBillerOnly
 from users.user_management import (
@@ -1408,9 +1409,14 @@ class CsrfExemptSessionAuthentication(SessionAuthentication):
         return
 
 
+class CompatSchemaSerializer(serializers.Serializer):
+    pass
+
+
 @method_decorator(csrf_exempt, name="dispatch")
-class CompatAPIView(APIView):
+class CompatAPIView(GenericAPIView):
     authentication_classes = [CsrfExemptSessionAuthentication, BasicAuthentication]
+    serializer_class = CompatSchemaSerializer
 
 
 class CompatAuthLoginView(CompatAPIView):
@@ -2171,7 +2177,9 @@ class CompatJobCardDetailView(CompatAPIView):
         }
         if jobcard.inventory_consumed_at and locked_fields.intersection(request.data):
             return Response(
-                {"error": "Cannot modify jobcard parts, labour, or totals after inventory has been consumed."},
+                {
+                    "error": "Cannot modify jobcard parts, labour, or totals after inventory has been consumed."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

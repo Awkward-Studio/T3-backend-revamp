@@ -1,20 +1,21 @@
 # yourapp/views.py
+from django.db import DatabaseError, IntegrityError
 from django.shortcuts import get_object_or_404
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from django.db import IntegrityError, DatabaseError
-from users.permissions import IsServiceOrAdmin
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer
 from inventory.services import StockError, consume_jobcard_inventory
+from rest_framework import serializers, status
+from rest_framework.generics import GenericAPIView
+from rest_framework.response import Response
+from users.permissions import IsServiceOrAdmin
 
-from .models import JobCard, CurrentPart, CurrentLabour
+from .models import CurrentLabour, CurrentPart, JobCard
 from .serializers import (
-    JobCardSerializer,
-    CurrentPartSerializer,
     CurrentLabourSerializer,
+    CurrentPartSerializer,
+    JobCardSerializer,
 )
 from .services import JobCardPartError, save_jobcard_parts
-from drf_spectacular.utils import extend_schema, extend_schema_view
 
 
 @extend_schema_view(
@@ -22,10 +23,12 @@ from drf_spectacular.utils import extend_schema, extend_schema_view
         summary="List all job cards",
         description="Retrieve a list of all job cards.",
         tags=["JobCards"],
+        responses={200: JobCardSerializer(many=True)},
     ),
 )
-class JobCardListView(APIView):
+class JobCardListView(GenericAPIView):
     permission_classes = [IsServiceOrAdmin]
+    serializer_class = JobCardSerializer
 
     def get(self, request):
         """
@@ -42,8 +45,9 @@ class JobCardListView(APIView):
             )
 
 
-class JobCardCreateView(APIView):
+class JobCardCreateView(GenericAPIView):
     permission_classes = [IsServiceOrAdmin]
+    serializer_class = JobCardSerializer
 
     @extend_schema(
         summary="Create a new job card",
@@ -77,13 +81,15 @@ class JobCardCreateView(APIView):
             )
 
 
-class JobCardDetailView(APIView):
+class JobCardDetailView(GenericAPIView):
     permission_classes = [IsServiceOrAdmin]
+    serializer_class = JobCardSerializer
 
     @extend_schema(
         summary="Retrieve a job card",
         description="Get detailed information about a specific job card.",
         tags=["JobCards"],
+        responses={200: JobCardSerializer},
     )
     def get(self, request, pk):
         """
@@ -94,8 +100,9 @@ class JobCardDetailView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class JobCardUpdateView(APIView):
+class JobCardUpdateView(GenericAPIView):
     permission_classes = [IsServiceOrAdmin]
+    serializer_class = JobCardSerializer
 
     @extend_schema(
         summary="Update a job card",
@@ -158,13 +165,15 @@ class JobCardUpdateView(APIView):
             )
 
 
-class JobCardDeleteView(APIView):
+class JobCardDeleteView(GenericAPIView):
     permission_classes = [IsServiceOrAdmin]
+    serializer_class = JobCardSerializer
 
     @extend_schema(
         summary="Delete a job card",
         description="Delete a job card record.",
         tags=["JobCards"],
+        responses={204: None},
     )
     def delete(self, request, pk):
         """
@@ -181,13 +190,15 @@ class JobCardDeleteView(APIView):
             )
 
 
-class CurrentPartListView(APIView):
+class CurrentPartListView(GenericAPIView):
     permission_classes = [IsServiceOrAdmin]
+    serializer_class = CurrentPartSerializer
 
     @extend_schema(
         summary="List all current parts",
         description="Retrieve a list of all current part snapshots.",
         tags=["CurrentParts"],
+        responses={200: CurrentPartSerializer(many=True)},
     )
     def get(self, request):
         try:
@@ -201,8 +212,9 @@ class CurrentPartListView(APIView):
             )
 
 
-class CurrentPartCreateView(APIView):
+class CurrentPartCreateView(GenericAPIView):
     permission_classes = [IsServiceOrAdmin]
+    serializer_class = CurrentPartSerializer
 
     @extend_schema(
         summary="Create a current part snapshot",
@@ -232,13 +244,15 @@ class CurrentPartCreateView(APIView):
             )
 
 
-class CurrentPartDetailView(APIView):
+class CurrentPartDetailView(GenericAPIView):
     permission_classes = [IsServiceOrAdmin]
+    serializer_class = CurrentPartSerializer
 
     @extend_schema(
         summary="Retrieve a current part snapshot",
         description="Get detailed information about a specific current part snapshot.",
         tags=["CurrentParts"],
+        responses={200: CurrentPartSerializer},
     )
     def get(self, request, pk):
         item = get_object_or_404(CurrentPart, pk=pk)
@@ -246,8 +260,9 @@ class CurrentPartDetailView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class CurrentPartUpdateView(APIView):
+class CurrentPartUpdateView(GenericAPIView):
     permission_classes = [IsServiceOrAdmin]
+    serializer_class = CurrentPartSerializer
 
     @extend_schema(
         summary="Update a current part snapshot",
@@ -306,13 +321,15 @@ class CurrentPartUpdateView(APIView):
             )
 
 
-class CurrentPartDeleteView(APIView):
+class CurrentPartDeleteView(GenericAPIView):
     permission_classes = [IsServiceOrAdmin]
+    serializer_class = CurrentPartSerializer
 
     @extend_schema(
         summary="Delete a current part snapshot",
         description="Delete a current part snapshot record.",
         tags=["CurrentParts"],
+        responses={204: None},
     )
     def delete(self, request, pk):
         item = get_object_or_404(CurrentPart, pk=pk)
@@ -326,13 +343,15 @@ class CurrentPartDeleteView(APIView):
             )
 
 
-class CurrentLabourListView(APIView):
+class CurrentLabourListView(GenericAPIView):
     permission_classes = [IsServiceOrAdmin]
+    serializer_class = CurrentLabourSerializer
 
     @extend_schema(
         summary="List all current labours",
         description="Retrieve a list of all current labour snapshots.",
         tags=["CurrentLabours"],
+        responses={200: CurrentLabourSerializer(many=True)},
     )
     def get(self, request):
         try:
@@ -346,8 +365,9 @@ class CurrentLabourListView(APIView):
             )
 
 
-class CurrentLabourCreateView(APIView):
+class CurrentLabourCreateView(GenericAPIView):
     permission_classes = [IsServiceOrAdmin]
+    serializer_class = CurrentLabourSerializer
 
     @extend_schema(
         summary="Create a current labour snapshot",
@@ -377,13 +397,15 @@ class CurrentLabourCreateView(APIView):
             )
 
 
-class CurrentLabourDetailView(APIView):
+class CurrentLabourDetailView(GenericAPIView):
     permission_classes = [IsServiceOrAdmin]
+    serializer_class = CurrentLabourSerializer
 
     @extend_schema(
         summary="Retrieve a current labour snapshot",
         description="Get detailed information about a specific current labour snapshot.",
         tags=["CurrentLabours"],
+        responses={200: CurrentLabourSerializer},
     )
     def get(self, request, pk):
         item = get_object_or_404(CurrentLabour, pk=pk)
@@ -391,8 +413,9 @@ class CurrentLabourDetailView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class CurrentLabourUpdateView(APIView):
+class CurrentLabourUpdateView(GenericAPIView):
     permission_classes = [IsServiceOrAdmin]
+    serializer_class = CurrentLabourSerializer
 
     @extend_schema(
         summary="Update a current labour snapshot",
@@ -451,13 +474,15 @@ class CurrentLabourUpdateView(APIView):
             )
 
 
-class CurrentLabourDeleteView(APIView):
+class CurrentLabourDeleteView(GenericAPIView):
     permission_classes = [IsServiceOrAdmin]
+    serializer_class = CurrentLabourSerializer
 
     @extend_schema(
         summary="Delete a current labour snapshot",
         description="Delete a current labour snapshot record.",
         tags=["CurrentLabours"],
+        responses={204: None},
     )
     def delete(self, request, pk):
         item = get_object_or_404(CurrentLabour, pk=pk)
@@ -471,17 +496,23 @@ class CurrentLabourDeleteView(APIView):
             )
 
 
-class AddPartsToJobCardView(APIView):
+class AddPartsToJobCardView(GenericAPIView):
     """
     Add/update/delete multiple CurrentPart entries on a JobCard.
     """
 
     permission_classes = [IsServiceOrAdmin]
+    serializer_class = CurrentPartSerializer
 
     @extend_schema(
         summary="Add parts to a job card",
         description="Add, update, or delete current part snapshots for a specific job card.",
         tags=["JobCards"],
+        request=inline_serializer(
+            name="AddPartsToJobCardRequest",
+            fields={"parts": serializers.ListField(child=serializers.JSONField())},
+        ),
+        responses={200: OpenApiTypes.ANY},
     )
     def post(self, request, jobcard_id):
         jobcard = get_object_or_404(JobCard, id=jobcard_id)
@@ -496,23 +527,32 @@ class AddPartsToJobCardView(APIView):
             )
 
         return Response(
-            {"added_or_updated_parts": CurrentPartSerializer(saved_parts, many=True).data},
+            {
+                "added_or_updated_parts": CurrentPartSerializer(
+                    saved_parts, many=True
+                ).data
+            },
             status=status.HTTP_200_OK,
         )
 
 
-
-class AddLaboursToJobCardView(APIView):
+class AddLaboursToJobCardView(GenericAPIView):
     """
     Add/update/delete multiple CurrentLabour entries on a JobCard’s TempCar.
     """
 
     permission_classes = [IsServiceOrAdmin]
+    serializer_class = CurrentLabourSerializer
 
     @extend_schema(
         summary="Add labours to a job card",
         description="Add, update, or delete current labour snapshots for a job card's temp car.",
         tags=["JobCards"],
+        request=inline_serializer(
+            name="AddLaboursToJobCardRequest",
+            fields={"labours": serializers.ListField(child=serializers.JSONField())},
+        ),
+        responses={200: OpenApiTypes.ANY},
     )
     def post(self, request, jobcard_id):
         jobcard = get_object_or_404(JobCard, id=jobcard_id)
@@ -596,13 +636,15 @@ class AddLaboursToJobCardView(APIView):
         )
 
 
-class FinalizeJobCardView(APIView):
+class FinalizeJobCardView(GenericAPIView):
     permission_classes = [IsServiceOrAdmin]
+    serializer_class = JobCardSerializer
 
     @extend_schema(
         summary="Finalize a job card",
         description="Finalize a job card and update inventory based on assigned current parts.",
         tags=["JobCards"],
+        responses={200: OpenApiTypes.ANY},
     )
     def post(self, request, jobcard_id):
         """

@@ -1,23 +1,24 @@
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from django.shortcuts import get_object_or_404
 import csv
 import io
 from datetime import datetime
+
+from django.shortcuts import get_object_or_404
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer
+from rest_framework import serializers, status
+from rest_framework.generics import GenericAPIView
+from rest_framework.response import Response
 from users.permissions import IsPartsOrAdmin
 
+from .filters import ProductFilter
 from .models import InventoryMovement, Product
 from .serializers import (
     InventoryMovementSerializer,
-    ProductListSerializer,
     ProductCreateSerializer,
     ProductDetailSerializer,
+    ProductListSerializer,
     ProductUpdateSerializer,
 )
-
-from .filters import ProductFilter
-from drf_spectacular.utils import extend_schema, extend_schema_view
 
 
 @extend_schema_view(
@@ -25,58 +26,46 @@ from drf_spectacular.utils import extend_schema, extend_schema_view
         summary="List all products",
         description="Retrieve a list of all products with optional filtering, search, and ordering.",
         tags=["Products"],
+        responses={200: ProductListSerializer(many=True)},
     ),
 )
-class ProductListView(APIView):
-    """
-    Handle GET requests to list all products with:
-    - Filtering (price range, category, name, creation date)
-    - Searching (name or other fields)
-    - Ordering (ascending/descending)
-    """
-
+class ProductListView(GenericAPIView):
     permission_classes = [IsPartsOrAdmin]
+    serializer_class = ProductListSerializer
 
     def get(self, request):
         products = Product.objects.all()
 
-        # Apply filters using django-filter
         filterset = ProductFilter(data=request.GET, queryset=products)
         if filterset.is_valid():
             products = filterset.qs
         else:
             return Response(filterset.errors, status=400)
 
-        # Apply ordering
         ordering = request.GET.get("ordering")
         if ordering:
             products = products.order_by(ordering)
 
-        # Serialize and return the response
-        serializer = ProductListSerializer(products, many=True)
+        serializer = self.get_serializer(products, many=True)
         return Response(serializer.data, status=200)
 
 
-class ProductCreateView(APIView):
-    """
-    Handle POST requests to create a new product.
-    """
-
+class ProductCreateView(GenericAPIView):
     permission_classes = [IsPartsOrAdmin]
+    serializer_class = ProductCreateSerializer
 
     @extend_schema(
         summary="Create a new product",
         description="Create a new product record (single or bulk).",
         tags=["Products"],
+        request=OpenApiTypes.OBJECT,
+        responses={201: OpenApiTypes.ANY},
     )
     def post(self, request):
-        # TODO: verify request serializer
-        if isinstance(
-            request.data, list
-        ):  # Check if the request is for multiple entries
-            serializer = ProductCreateSerializer(data=request.data, many=True)
-        else:  # Single product creation
-            serializer = ProductCreateSerializer(data=request.data)
+        if isinstance(request.data, list):
+            serializer = self.get_serializer(data=request.data, many=True)
+        else:
+            serializer = self.get_serializer(data=request.data)
 
         if serializer.is_valid():
             serializer.save()
@@ -84,22 +73,20 @@ class ProductCreateView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-class ProductDetailView(APIView):
-    """
-    Handle GET requests to retrieve a specific product.
-    """
-
+class ProductDetailView(GenericAPIView):
     permission_classes = [IsPartsOrAdmin]
+    serializer_class = ProductDetailSerializer
 
     @extend_schema(
         summary="Retrieve a product",
         description="Get detailed information about a specific product.",
         tags=["Products"],
+        responses={200: ProductDetailSerializer},
     )
     def get(self, request, pk):
         try:
             product = Product.objects.get(pk=pk)
-            serializer = ProductDetailSerializer(product)
+            serializer = self.get_serializer(product)
             return Response(serializer.data)
         except Product.DoesNotExist:
             return Response(
@@ -107,12 +94,9 @@ class ProductDetailView(APIView):
             )
 
 
-class ProductUpdateView(APIView):
-    """
-    Handle PUT requests to update a product.
-    """
-
+class ProductUpdateView(GenericAPIView):
     permission_classes = [IsPartsOrAdmin]
+    serializer_class = ProductUpdateSerializer
 
     @extend_schema(
         summary="Partially update a product",
@@ -129,24 +113,22 @@ class ProductUpdateView(APIView):
                 {"error": "Product not found"}, status=status.HTTP_404_NOT_FOUND
             )
 
-        serializer = ProductUpdateSerializer(product, data=request.data, partial=True)
+        serializer = self.get_serializer(product, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-class ProductDeleteView(APIView):
-    """
-    Handle DELETE requests to delete a product.
-    """
-
+class ProductDeleteView(GenericAPIView):
     permission_classes = [IsPartsOrAdmin]
+    serializer_class = ProductDetailSerializer
 
     @extend_schema(
         summary="Delete a product",
         description="Delete a product record.",
         tags=["Products"],
+        responses={204: None},
     )
     def delete(self, request, pk):
         try:
@@ -162,17 +144,19 @@ class ProductDeleteView(APIView):
             )
 
 
-class ProductCsvUploadView(APIView):
-    """
-    Handle CSV uploads to create products in the database.
-    """
-
+class ProductCsvUploadView(GenericAPIView):
     permission_classes = [IsPartsOrAdmin]
+    serializer_class = serializers.Serializer
 
     @extend_schema(
         summary="Upload products via CSV",
         description="Upload a CSV file to create product records in bulk.",
         tags=["Products"],
+        request=inline_serializer(
+            name="ProductCsvUploadRequest",
+            fields={"file": serializers.FileField()},
+        ),
+        responses={200: OpenApiTypes.ANY},
     )
     def post(self, request):
         csv_file = request.FILES.get("file")
@@ -222,7 +206,6 @@ class ProductCsvUploadView(APIView):
                     warrantyPeriod=row.get("warrantyPeriod") or None,
                 )
 
-                # Parse dates if provided (expected format: YYYY-MM-DD)
                 if row.get("purchaseOrderDate"):
                     product.purchaseOrderDate = datetime.strptime(
                         row["purchaseOrderDate"], "%Y-%m-%d"
@@ -244,13 +227,15 @@ class ProductCsvUploadView(APIView):
         )
 
 
-class InventoryMovementListView(APIView):
+class InventoryMovementListView(GenericAPIView):
     permission_classes = [IsPartsOrAdmin]
+    serializer_class = InventoryMovementSerializer
 
     @extend_schema(
         summary="List inventory movements",
         description="Retrieve stock movement history, optionally filtered by product or job_card.",
         tags=["Inventory"],
+        responses={200: InventoryMovementSerializer(many=True)},
     )
     def get(self, request):
         movements = InventoryMovement.objects.select_related(
@@ -265,5 +250,5 @@ class InventoryMovementListView(APIView):
         if job_card_id:
             movements = movements.filter(job_card_id=job_card_id)
 
-        serializer = InventoryMovementSerializer(movements, many=True)
+        serializer = self.get_serializer(movements, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)

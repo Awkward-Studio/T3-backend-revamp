@@ -8,12 +8,13 @@ from botocore.exceptions import BotoCoreError, ClientError
 from django.conf import settings
 from django.db import DatabaseError
 from django.http import Http404, HttpResponseRedirect
-from django.urls import reverse
 from django.shortcuts import get_object_or_404
-from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import permissions, status
+from django.urls import reverse
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
+from rest_framework import permissions, serializers, status
+from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
-from rest_framework.views import APIView
 
 from .models import UploadedAsset
 from .serializers import UploadedAssetSerializer
@@ -72,9 +73,10 @@ def generate_presigned_asset_url(asset):
     )
 
 
-class AssetUploadBaseView(APIView):
+class AssetUploadBaseView(GenericAPIView):
     permission_classes = [permissions.AllowAny]
     authentication_classes = []
+    serializer_class = UploadedAssetSerializer
     asset_kind = None
     tag_name = "Uploads"
 
@@ -82,6 +84,10 @@ class AssetUploadBaseView(APIView):
         summary="Upload a file",
         description="Upload a file and receive a stable asset id plus absolute URL.",
         tags=["Uploads"],
+        request=inline_serializer(
+            name="AssetUploadRequest",
+            fields={"file": serializers.FileField()},
+        ),
         responses={
             201: UploadedAssetSerializer,
             400: OpenApiResponse(description="Invalid upload"),
@@ -151,7 +157,7 @@ class AssetUploadBaseView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        serializer = UploadedAssetSerializer(asset, context={"request": request})
+        serializer = self.get_serializer(asset, context={"request": request})
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
@@ -167,26 +173,28 @@ class PdfUploadView(AssetUploadBaseView):
     asset_kind = UploadedAsset.KIND_PDF
 
 
-class AssetUrlView(APIView):
+class AssetUrlView(GenericAPIView):
     permission_classes = [permissions.AllowAny]
+    serializer_class = UploadedAssetSerializer
 
     @extend_schema(
         summary="Get uploaded asset URL",
         description="Resolve an uploaded asset id to an absolute URL.",
         tags=["Uploads"],
         responses={
-            200: OpenApiResponse(description="Asset URL"),
+            200: UploadedAssetSerializer,
             404: OpenApiResponse(description="Not found"),
         },
     )
     def get(self, request, asset_id):
         asset = get_object_or_404(UploadedAsset, pk=asset_id)
-        serializer = UploadedAssetSerializer(asset, context={"request": request})
+        serializer = self.get_serializer(asset, context={"request": request})
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class AssetFileRedirectView(APIView):
+class AssetFileRedirectView(GenericAPIView):
     permission_classes = [permissions.AllowAny]
+    serializer_class = UploadedAssetSerializer
 
     @extend_schema(
         summary="Open uploaded asset file",
@@ -195,6 +203,7 @@ class AssetFileRedirectView(APIView):
         responses={
             302: OpenApiResponse(description="Redirect to file URL"),
             404: OpenApiResponse(description="Not found"),
+            500: OpenApiResponse(description="Storage bucket not configured"),
         },
     )
     def get(self, request, asset_id):

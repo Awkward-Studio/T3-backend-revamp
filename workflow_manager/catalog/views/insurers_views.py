@@ -1,12 +1,12 @@
+from django.db import DatabaseError, IntegrityError, transaction
 from django.shortcuts import get_object_or_404
-from rest_framework.views import APIView
+from drf_spectacular.utils import extend_schema, extend_schema_view
+from rest_framework import permissions, status
+from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
-from rest_framework import status, permissions
-from django.db import IntegrityError, DatabaseError, transaction
 
 from catalog.models.insurers_model import InsuranceProvider
 from catalog.serializers.insurers_serializers import InsuranceProviderSerializer
-from drf_spectacular.utils import extend_schema, extend_schema_view
 
 
 @extend_schema_view(
@@ -14,18 +14,17 @@ from drf_spectacular.utils import extend_schema, extend_schema_view
         summary="List all insurance providers",
         description="Retrieve a list of all insurance providers.",
         tags=["InsuranceProviders"],
+        responses={200: InsuranceProviderSerializer(many=True)},
     ),
 )
-class InsuranceProviderListView(APIView):
+class InsuranceProviderListView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = InsuranceProviderSerializer
 
     def get(self, request):
-        """
-        GET /api/insurance-providers/
-        """
         try:
             qs = InsuranceProvider.objects.all()
-            serializer = InsuranceProviderSerializer(qs, many=True)
+            serializer = self.get_serializer(qs, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
         except DatabaseError as e:
             return Response(
@@ -34,8 +33,9 @@ class InsuranceProviderListView(APIView):
             )
 
 
-class InsuranceProviderCreateView(APIView):
+class InsuranceProviderCreateView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = InsuranceProviderSerializer
 
     @extend_schema(
         summary="Create an insurance provider",
@@ -45,15 +45,7 @@ class InsuranceProviderCreateView(APIView):
         responses={201: InsuranceProviderSerializer},
     )
     def post(self, request):
-        """
-        POST /api/insurance-providers/create/
-        {
-          "insurer": "Acme Insurance Ltd",
-          "address": "123 Main St, Metropolis",
-          "gst": "29ABCDE1234F1Z5"
-        }
-        """
-        serializer = InsuranceProviderSerializer(data=request.data)
+        serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -61,8 +53,7 @@ class InsuranceProviderCreateView(APIView):
             with transaction.atomic():
                 provider = serializer.save()
             return Response(
-                InsuranceProviderSerializer(provider).data,
-                status=status.HTTP_201_CREATED,
+                self.get_serializer(provider).data, status=status.HTTP_201_CREATED
             )
         except IntegrityError as e:
             return Response(
@@ -76,22 +67,19 @@ class InsuranceProviderCreateView(APIView):
             )
 
 
-class InsuranceProviderDetailView(APIView):
+class InsuranceProviderDetailView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = InsuranceProviderSerializer
 
     @extend_schema(
         summary="Retrieve an insurance provider",
         description="Get detailed information about a specific insurance provider.",
         tags=["InsuranceProviders"],
+        responses={200: InsuranceProviderSerializer},
     )
     def get(self, request, pk):
-        """
-        GET /api/insurance-providers/{pk}/
-        """
         provider = get_object_or_404(InsuranceProvider, id=pk)
-        return Response(
-            InsuranceProviderSerializer(provider).data, status=status.HTTP_200_OK
-        )
+        return Response(self.get_serializer(provider).data, status=status.HTTP_200_OK)
 
     @extend_schema(
         summary="Update an insurance provider",
@@ -101,12 +89,8 @@ class InsuranceProviderDetailView(APIView):
         responses={200: InsuranceProviderSerializer},
     )
     def put(self, request, pk):
-        """
-        PUT /api/insurance-providers/{pk}/update/
-        Full update of all modifiable fields.
-        """
         provider = get_object_or_404(InsuranceProvider, id=pk)
-        serializer = InsuranceProviderSerializer(provider, data=request.data)
+        serializer = self.get_serializer(provider, data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -114,7 +98,7 @@ class InsuranceProviderDetailView(APIView):
             with transaction.atomic():
                 updated = serializer.save()
             return Response(
-                InsuranceProviderSerializer(updated).data, status=status.HTTP_200_OK
+                self.get_serializer(updated).data, status=status.HTTP_200_OK
             )
         except IntegrityError as e:
             return Response(
@@ -135,14 +119,8 @@ class InsuranceProviderDetailView(APIView):
         responses={200: InsuranceProviderSerializer},
     )
     def patch(self, request, pk):
-        """
-        PATCH /api/insurance-providers/{pk}/partial-update/
-        Partial update of one or more fields.
-        """
         provider = get_object_or_404(InsuranceProvider, id=pk)
-        serializer = InsuranceProviderSerializer(
-            provider, data=request.data, partial=True
-        )
+        serializer = self.get_serializer(provider, data=request.data, partial=True)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -150,7 +128,7 @@ class InsuranceProviderDetailView(APIView):
             with transaction.atomic():
                 updated = serializer.save()
             return Response(
-                InsuranceProviderSerializer(updated).data, status=status.HTTP_200_OK
+                self.get_serializer(updated).data, status=status.HTTP_200_OK
             )
         except IntegrityError as e:
             return Response(
@@ -167,11 +145,9 @@ class InsuranceProviderDetailView(APIView):
         summary="Delete an insurance provider",
         description="Delete an insurance provider record.",
         tags=["InsuranceProviders"],
+        responses={204: None},
     )
     def delete(self, request, pk):
-        """
-        DELETE /api/insurance-providers/{pk}/delete/
-        """
         provider = get_object_or_404(InsuranceProvider, id=pk)
         try:
             provider.delete()

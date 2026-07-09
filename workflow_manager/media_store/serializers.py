@@ -1,3 +1,5 @@
+from typing import Optional
+
 from rest_framework import serializers
 
 from .models import UploadedAsset
@@ -18,7 +20,7 @@ class UploadedAssetSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
-    def get_href(self, obj):
+    def get_href(self, obj) -> Optional[str]:
         request = self.context.get("request")
         if not obj.file_url:
             return None

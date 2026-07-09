@@ -1,12 +1,12 @@
+from django.db import DatabaseError, IntegrityError
 from django.shortcuts import get_object_or_404
-from rest_framework.views import APIView
+from drf_spectacular.utils import extend_schema, extend_schema_view
+from rest_framework import permissions, status
+from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
-from rest_framework import status, permissions
-from django.db import IntegrityError, DatabaseError
 
 from catalog.models.labour_models import Labour
 from catalog.serializers.labour_serializers import LabourSerializer
-from drf_spectacular.utils import extend_schema, extend_schema_view
 
 
 @extend_schema_view(
@@ -14,18 +14,17 @@ from drf_spectacular.utils import extend_schema, extend_schema_view
         summary="List all labours",
         description="Retrieve a list of all labour records.",
         tags=["Labours"],
+        responses={200: LabourSerializer(many=True)},
     ),
 )
-class LabourListView(APIView):
+class LabourListView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = LabourSerializer
 
     def get(self, request):
-        """
-        GET /api/labours/
-        """
         try:
             labours = Labour.objects.all()
-            serializer = LabourSerializer(labours, many=True)
+            serializer = self.get_serializer(labours, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
         except DatabaseError:
             return Response(
@@ -34,8 +33,9 @@ class LabourListView(APIView):
             )
 
 
-class LabourCreateView(APIView):
+class LabourCreateView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = LabourSerializer
 
     @extend_schema(
         summary="Create a labour",
@@ -45,17 +45,14 @@ class LabourCreateView(APIView):
         responses={201: LabourSerializer},
     )
     def post(self, request):
-        """
-        POST /api/labours/create/
-        """
-        serializer = LabourSerializer(data=request.data)
+        serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             labour = serializer.save()
             return Response(
-                LabourSerializer(labour).data, status=status.HTTP_201_CREATED
+                self.get_serializer(labour).data, status=status.HTTP_201_CREATED
             )
         except IntegrityError:
             return Response(
@@ -69,25 +66,25 @@ class LabourCreateView(APIView):
             )
 
 
-class LabourDetailView(APIView):
+class LabourDetailView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = LabourSerializer
 
     @extend_schema(
         summary="Retrieve a labour",
         description="Get detailed information about a specific labour record.",
         tags=["Labours"],
+        responses={200: LabourSerializer},
     )
     def get(self, request, pk):
-        """
-        GET /api/labours/{pk}/
-        """
         labour = get_object_or_404(Labour, pk=pk)
-        serializer = LabourSerializer(labour)
+        serializer = self.get_serializer(labour)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class LabourUpdateView(APIView):
+class LabourUpdateView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = LabourSerializer
 
     @extend_schema(
         summary="Update a labour",
@@ -97,18 +94,14 @@ class LabourUpdateView(APIView):
         responses={200: LabourSerializer},
     )
     def put(self, request, pk):
-        """
-        PUT /api/labours/{pk}/update/
-        Full update
-        """
         labour = get_object_or_404(Labour, pk=pk)
-        serializer = LabourSerializer(labour, data=request.data)
+        serializer = self.get_serializer(labour, data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             labour = serializer.save()
-            return Response(LabourSerializer(labour).data, status=status.HTTP_200_OK)
+            return Response(self.get_serializer(labour).data, status=status.HTTP_200_OK)
         except IntegrityError:
             return Response(
                 {"error": "Labour code conflicts with an existing record."},
@@ -128,18 +121,14 @@ class LabourUpdateView(APIView):
         responses={200: LabourSerializer},
     )
     def patch(self, request, pk):
-        """
-        PATCH /api/labours/{pk}/update/
-        Partial update
-        """
         labour = get_object_or_404(Labour, pk=pk)
-        serializer = LabourSerializer(labour, data=request.data, partial=True)
+        serializer = self.get_serializer(labour, data=request.data, partial=True)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             labour = serializer.save()
-            return Response(LabourSerializer(labour).data, status=status.HTTP_200_OK)
+            return Response(self.get_serializer(labour).data, status=status.HTTP_200_OK)
         except IntegrityError:
             return Response(
                 {"error": "Labour code conflicts with an existing record."},
@@ -152,18 +141,17 @@ class LabourUpdateView(APIView):
             )
 
 
-class LabourDeleteView(APIView):
+class LabourDeleteView(GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = LabourSerializer
 
     @extend_schema(
         summary="Delete a labour",
         description="Delete a labour record.",
         tags=["Labours"],
+        responses={204: None},
     )
     def delete(self, request, pk):
-        """
-        DELETE /api/labours/{pk}/delete/
-        """
         labour = get_object_or_404(Labour, pk=pk)
         try:
             labour.delete()

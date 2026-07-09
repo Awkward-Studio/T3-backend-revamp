@@ -19,9 +19,18 @@ class Command(BaseCommand):
         admin_password = os.getenv("ADMIN_PASSWORD", password)
 
         users = [
+            # Primary admin
             {
                 "email": admin_email,
                 "password": admin_password,
+                "role": RoleName.ADMIN,
+                "is_staff": True,
+                "is_superuser": True,
+            },
+            # Second admin
+            {
+                "email": "admin2@example.com",
+                "password": "changeme",
                 "role": RoleName.ADMIN,
                 "is_staff": True,
                 "is_superuser": True,
@@ -47,6 +56,7 @@ class Command(BaseCommand):
             for user_config in users:
                 email = user_config["email"]
                 role_name = user_config["role"]
+
                 user = (
                     User.objects.filter(email__iexact=email).first()
                     or User.objects.filter(username__iexact=email).first()
@@ -69,6 +79,7 @@ class Command(BaseCommand):
                 user.is_staff = user_config.get("is_staff", False)
                 user.is_superuser = user_config.get("is_superuser", False)
                 user.save()
+
                 user.roles.set([roles[role_name]])
 
         self.stdout.write(
