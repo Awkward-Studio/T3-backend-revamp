@@ -1,5 +1,3 @@
-import os
-
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.db import transaction
@@ -7,16 +5,16 @@ from django.db import transaction
 from users.models import Role, RoleName
 
 
-DEFAULT_PASSWORD = "Example@2026"
+DEFAULT_PASSWORD = "Changeme"
+DEFAULT_ADMIN_EMAIL = "admin@example.com"
 
 
 class Command(BaseCommand):
     help = "Create one default user for each role if missing"
 
     def handle(self, *args, **options):
-        password = os.getenv("SEED_USER_PASSWORD", DEFAULT_PASSWORD)
-        admin_email = os.getenv("ADMIN_EMAIL", "admin@example.com")
-        admin_password = os.getenv("ADMIN_PASSWORD", password)
+        admin_email = DEFAULT_ADMIN_EMAIL
+        admin_password = DEFAULT_PASSWORD
 
         users = [
             # Primary admin
@@ -27,20 +25,12 @@ class Command(BaseCommand):
                 "is_staff": True,
                 "is_superuser": True,
             },
-            # Second admin
-            {
-                "email": "admin2@example.com",
-                "password": "changeme",
-                "role": RoleName.ADMIN,
-                "is_staff": True,
-                "is_superuser": True,
-            },
-            {"email": "service@example.com", "password": password, "role": RoleName.SERVICE},
-            {"email": "biller@example.com", "password": password, "role": RoleName.BILLER},
-            {"email": "parts@example.com", "password": password, "role": RoleName.PARTS},
-            {"email": "security@example.com", "password": password, "role": RoleName.SECURITY},
-            {"email": "caller@example.com", "password": password, "role": RoleName.CALLER},
-            {"email": "mechanic@example.com", "password": password, "role": RoleName.MECHANIC},
+            {"email": "service@example.com", "password": DEFAULT_PASSWORD, "role": RoleName.SERVICE},
+            {"email": "biller@example.com", "password": DEFAULT_PASSWORD, "role": RoleName.BILLER},
+            {"email": "parts@example.com", "password": DEFAULT_PASSWORD, "role": RoleName.PARTS},
+            {"email": "security@example.com", "password": DEFAULT_PASSWORD, "role": RoleName.SECURITY},
+            {"email": "caller@example.com", "password": DEFAULT_PASSWORD, "role": RoleName.CALLER},
+            {"email": "mechanic@example.com", "password": DEFAULT_PASSWORD, "role": RoleName.MECHANIC},
         ]
 
         User = get_user_model()

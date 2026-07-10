@@ -38,6 +38,33 @@ def env_list(name, default=None):
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def unique_list(values):
+    seen = set()
+    result = []
+    for value in values:
+        if value and value not in seen:
+            result.append(value)
+            seen.add(value)
+    return result
+
+
+def env_origin_list():
+    origins = []
+    for name in (
+        "FRONTEND_URL",
+        "FRONTEND_ORIGIN",
+        "NEXT_PUBLIC_APP_URL",
+        "VERCEL_URL",
+    ):
+        value = (os.getenv(name) or "").strip().rstrip("/")
+        if not value:
+            continue
+        if "://" not in value:
+            value = f"https://{value}"
+        origins.append(value)
+    return origins
+
+
 def database_from_url(url):
     parsed = urlparse(url)
     if parsed.scheme not in {"postgres", "postgresql"}:
@@ -264,28 +291,33 @@ REST_FRAMEWORK = {
 }
 
 # CORS (useful when Next.js calls this API from another origin)
-CORS_ALLOWED_ORIGINS = [
+CORS_ALLOWED_ORIGINS = unique_list([
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "https://t3-new-demo.vercel.app",
-] + env_list("CORS_ALLOWED_ORIGINS")
+] + env_origin_list() + env_list("CORS_ALLOWED_ORIGINS"))
 CORS_ALLOW_CREDENTIALS = True
 
 # Required for session-authenticated unsafe methods (POST/PATCH/DELETE)
 # when frontend and backend are on different origins during local dev.
-CSRF_TRUSTED_ORIGINS = [
+CSRF_TRUSTED_ORIGINS = unique_list([
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "https://t3-new-demo.vercel.app",
-] + env_list("CSRF_TRUSTED_ORIGINS")
+] + env_origin_list() + env_list("CSRF_TRUSTED_ORIGINS"))
 
 if os.getenv("RAILWAY_PUBLIC_DOMAIN"):
     CSRF_TRUSTED_ORIGINS.append(f"https://{os.environ['RAILWAY_PUBLIC_DOMAIN']}")
+    CSRF_TRUSTED_ORIGINS = unique_list(CSRF_TRUSTED_ORIGINS)
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", default=not DEBUG)
-SESSION_COOKIE_SECURE = not DEBUG
-CSRF_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_SECURE = env_bool("SESSION_COOKIE_SECURE", default=not DEBUG)
+CSRF_COOKIE_SECURE = env_bool("CSRF_COOKIE_SECURE", default=not DEBUG)
+SESSION_COOKIE_SAMESITE = os.getenv(
+    "SESSION_COOKIE_SAMESITE", "None" if not DEBUG else "Lax"
+)
+CSRF_COOKIE_SAMESITE = os.getenv("CSRF_COOKIE_SAMESITE", "None" if not DEBUG else "Lax")
 
 LOGGING = {
     "version": 1,

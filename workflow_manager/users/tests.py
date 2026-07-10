@@ -13,21 +13,36 @@ class SeedDefaultUsersTests(TestCase):
         call_command("seed_default_users")
 
         expected_users = {
-            "admin@example.com": RoleName.ADMIN,
-            "service@example.com": RoleName.SERVICE,
-            "biller@example.com": RoleName.BILLER,
-            "parts@example.com": RoleName.PARTS,
-            "security@example.com": RoleName.SECURITY,
-            "caller@example.com": RoleName.CALLER,
-            "mechanic@example.com": RoleName.MECHANIC,
+            "admin@example.com": (RoleName.ADMIN, "Changeme"),
+            "service@example.com": (RoleName.SERVICE, "Changeme"),
+            "biller@example.com": (RoleName.BILLER, "Changeme"),
+            "parts@example.com": (RoleName.PARTS, "Changeme"),
+            "security@example.com": (RoleName.SECURITY, "Changeme"),
+            "caller@example.com": (RoleName.CALLER, "Changeme"),
+            "mechanic@example.com": (RoleName.MECHANIC, "Changeme"),
         }
 
         self.assertEqual(User.objects.count(), len(expected_users))
-        for email, role_name in expected_users.items():
+        for email, (role_name, user_password) in expected_users.items():
             user = User.objects.get(email=email)
-            self.assertTrue(user.check_password("Example@2026"))
+            self.assertTrue(user.check_password(user_password))
             self.assertTrue(user.has_role(role_name))
 
         admin = User.objects.get(email="admin@example.com")
+        self.assertTrue(admin.is_staff)
+        self.assertTrue(admin.is_superuser)
+
+    def test_seed_default_users_resets_default_admin_password(self):
+        User = get_user_model()
+
+        call_command("seed_default_users")
+        admin = User.objects.get(email="admin@example.com")
+        admin.set_password("Changed@2026")
+        admin.save(update_fields=["password"])
+
+        call_command("seed_default_users")
+
+        admin.refresh_from_db()
+        self.assertTrue(admin.check_password("Changeme"))
         self.assertTrue(admin.is_staff)
         self.assertTrue(admin.is_superuser)

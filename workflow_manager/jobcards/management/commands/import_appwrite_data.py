@@ -5,7 +5,6 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from django.core.management import BaseCommand, CommandError, call_command
-from django.db import transaction
 from django.utils import timezone
 
 from auditlog.models import HistoryEntry
@@ -33,6 +32,8 @@ APPWRITE_META_KEYS = {
     "$sequence",
     "$updatedAt",
 }
+
+BATCH_SIZE = 1000
 
 
 def parse_dt(value):
@@ -99,6 +100,14 @@ def set_timestamps(instance, row):
     )
 
 
+def created_at(row):
+    return parse_dt(row.get("$createdAt"))
+
+
+def updated_at(row):
+    return parse_dt(row.get("$updatedAt"))
+
+
 def invoice_actual_key(row):
     return json.dumps(
         {
@@ -157,8 +166,7 @@ class Command(BaseCommand):
         if flush:
             call_command("flush", "--noinput", verbosity=0)
 
-        with transaction.atomic():
-            maps = self.import_all(data)
+        maps = self.import_all(data)
 
         self.stdout.write(
             self.style.SUCCESS(
@@ -263,42 +271,85 @@ class Command(BaseCommand):
             "labour": {},
             "invoices": 0,
         }
+        self.step("Importing catalog, insurers, parts, and labour")
         self.import_catalog(data, maps)
+        self.step(
+            f"Imported products={len(maps['parts'])}, labour={len(maps['labour'])}"
+        )
+
+        self.step("Importing cars")
         self.import_cars(data, maps)
+        self.step(f"Imported cars={len(maps['cars'])}")
+
+        self.step("Importing temp cars")
         self.import_temp_cars(data, maps)
+        self.step(f"Imported temp cars from export={len(maps['temp_cars'])}")
+
+        self.step("Importing job cards and creating missing temp-car stubs")
         self.import_job_cards(data, maps)
+        self.step(
+            f"Imported job cards={len(maps['job_cards'])}, temp car map={len(maps['temp_cars'])}"
+        )
+
+        self.step("Rewriting car and temp-car job-card id lists")
         self.update_car_job_lists(data, maps)
+        self.step("Updated car/temp-car job-card lists")
+
+        self.step("Deriving current parts and current labour")
         self.import_current_items(data, maps)
+        self.step("Imported current parts/current labour")
+
         # Skip invoices for now. The export contains orphaned invoice rows and
         # repeated generated PDFs that need a separate migration policy.
+        self.step("Importing counters")
         self.import_counters(data)
+        self.step("Imported counters")
+
+        self.step("Importing deleted job card archive")
         self.import_deleted_job_cards(data)
+        self.step("Imported deleted job card archive")
+
+        self.step("Importing history")
         self.import_history(data, maps)
+        self.step("Imported history")
         return maps
 
+    def step(self, message):
+        self.stdout.write(message)
+        self.stdout.flush()
+
     def import_catalog(self, data, maps):
+        vehicle_models = []
         for row in data["car_models"]:
-            item = VehilceModel.objects.create(
+            vehicle_models.append(VehilceModel(
                 make=text(row.get("make"), max_length=255),
                 models=clean_json_value(row.get("models") or []),
-            )
-            set_timestamps(item, row)
+                created_at=created_at(row),
+                updated_at=updated_at(row),
+            ))
+        VehilceModel.objects.bulk_create(vehicle_models, batch_size=BATCH_SIZE)
 
+        insurers = []
         for row in data["insurers"]:
-            item = InsuranceProvider.objects.create(
+            insurers.append(InsuranceProvider(
                 insurer=text(row.get("insurer"), max_length=255),
                 address=text(row.get("address")),
                 gst=text(row.get("GST"), max_length=50),
-            )
-            set_timestamps(item, row)
+                created_at=created_at(row),
+                updated_at=updated_at(row),
+            ))
+        InsuranceProvider.objects.bulk_create(insurers, batch_size=BATCH_SIZE)
 
         seen_part_payloads = set()
+        part_payload_to_pk = {}
+        products = []
         for row in data["parts"]:
             payload_key = json.dumps(strip_meta(row), sort_keys=True, default=str)
             if payload_key in seen_part_payloads:
+                maps["parts"][row["$id"]] = part_payload_to_pk[payload_key]
                 continue
             seen_part_payloads.add(payload_key)
-            item = Product.objects.create(
+            item = Product(
                 name=text(row.get("partName"), max_length=100),
                 itemCode=text(row.get("partNumber"), max_length=50),
                 sku=text(row.get("partNumber"), max_length=50),
@@ -310,17 +361,24 @@ class Command(BaseCommand):
                 gst=dec(row.get("gst")),
                 cgst=dec(row.get("cgst")),
                 sgst=dec(row.get("sgst")),
+                created_at=created_at(row),
+                updated_at=updated_at(row),
             )
+            products.append(item)
             maps["parts"][row["$id"]] = item.pk
-            set_timestamps(item, row)
+            part_payload_to_pk[payload_key] = item.pk
+        Product.objects.bulk_create(products, batch_size=BATCH_SIZE)
 
         seen_labour_payloads = set()
+        labour_payload_to_pk = {}
+        labours = []
         for row in data["labour"]:
             payload_key = json.dumps(strip_meta(row), sort_keys=True, default=str)
             if payload_key in seen_labour_payloads:
+                maps["labour"][row["$id"]] = labour_payload_to_pk[payload_key]
                 continue
             seen_labour_payloads.add(payload_key)
-            item = Labour.objects.create(
+            item = Labour(
                 labour_name=text(row.get("labourName"), max_length=255),
                 labour_code=text(row.get("labourCode"), default=None, max_length=50),
                 hsn=text(row.get("hsn"), max_length=20),
@@ -329,13 +387,19 @@ class Command(BaseCommand):
                 gst=dec(row.get("gst")),
                 cgst=dec(row.get("cgst")),
                 sgst=dec(row.get("sgst")),
+                created_at=created_at(row),
+                updated_at=updated_at(row),
             )
+            labours.append(item)
             maps["labour"][row["$id"]] = item.pk
-            set_timestamps(item, row)
+            labour_payload_to_pk[payload_key] = item.pk
+        Labour.objects.bulk_create(labours, batch_size=BATCH_SIZE)
 
     def import_cars(self, data, maps):
+        cars = []
+        rows = []
         for row in data["cars"]:
-            car = Car.objects.create(
+            car = Car(
                 car_number=text(row.get("carNumber"), max_length=100),
                 car_make=text(row.get("carMake"), max_length=100),
                 car_model=text(row.get("carModel"), max_length=100),
@@ -351,17 +415,26 @@ class Command(BaseCommand):
                 ),
                 customer_email=text(row.get("customerEmail")),
                 calling_status=int(row.get("callingStatus") or 0),
+                created_at=created_at(row),
+                updated_at=updated_at(row),
             )
+            cars.append(car)
+            rows.append(row)
+        Car.objects.bulk_create(cars, batch_size=BATCH_SIZE)
+        portals = []
+        for row, car in zip(rows, cars):
             maps["cars"][row["$id"]] = car.pk
-            CustomerPortal.objects.create(car=car)
-            set_timestamps(car, row)
+            portals.append(CustomerPortal(car=car))
+        CustomerPortal.objects.bulk_create(portals, batch_size=BATCH_SIZE)
 
     def import_temp_cars(self, data, maps):
+        temp_cars = []
+        rows = []
         for row in data["temp_cars"]:
             car_pk = maps["cars"].get(row.get("carsTableId"))
             if not car_pk:
                 continue
-            temp = TempCar.objects.create(
+            temp = TempCar(
                 car_id=car_pk,
                 job_card_id="",
                 car_status=int(row.get("carStatus") or 0),
@@ -370,9 +443,14 @@ class Command(BaseCommand):
                     row.get("purposeOfVisitAndAdvisors") or []
                 ),
                 all_job_card_ids=[],
+                created_at=created_at(row),
+                updated_at=updated_at(row),
             )
+            temp_cars.append(temp)
+            rows.append(row)
+        TempCar.objects.bulk_create(temp_cars, batch_size=BATCH_SIZE)
+        for row, temp in zip(rows, temp_cars):
             maps["temp_cars"][row["$id"]] = temp.pk
-            set_timestamps(temp, row)
 
     def import_job_cards(self, data, maps):
         cars_by_number = {car.car_number: car for car in Car.objects.all()}
@@ -457,19 +535,24 @@ class Command(BaseCommand):
                 temp.save(update_fields=["all_job_card_ids", "job_card_id"])
 
     def import_current_items(self, data, maps):
+        current_parts = []
+        current_labours = []
+        jobs = JobCard.objects.in_bulk(maps["job_cards"].values())
         for row in data["job_cards"]:
             job_pk = maps["job_cards"].get(row["$id"])
             if not job_pk:
                 continue
-            job = JobCard.objects.get(pk=job_pk)
+            job = jobs.get(job_pk)
+            if not job:
+                continue
             for part in clean_json_value(row.get("parts") or []):
                 if not isinstance(part, dict):
                     continue
                 product_pk = maps["parts"].get(part.get("partId"))
                 if not product_pk:
                     continue
-                CurrentPart.objects.create(
-                    job_card=job,
+                current_parts.append(CurrentPart(
+                    job_card_id=job.pk,
                     product_id=product_pk,
                     part_id=str(product_pk),
                     part_name=text(part.get("partName"), max_length=255),
@@ -488,11 +571,11 @@ class Command(BaseCommand):
                     insurance_percentage=dec(part.get("insurancePercentage"), default="0"),
                     insurance_amount=dec(part.get("insuranceAmt"), default="0"),
                     customer_amount=dec(part.get("customerAmt"), default="0"),
-                )
+                ))
             for labour in clean_json_value(row.get("labour") or []):
                 if not isinstance(labour, dict) or not job.temp_car_id:
                     continue
-                CurrentLabour.objects.create(
+                current_labours.append(CurrentLabour(
                     temp_car_id=job.temp_car_id,
                     labour_id=str(maps["labour"].get(labour.get("labourId"), labour.get("labourId") or "")),
                     labour_name=text(labour.get("labourName"), max_length=255),
@@ -508,7 +591,9 @@ class Command(BaseCommand):
                     sgst_amount=dec(labour.get("sgstAmt")),
                     total_tax=dec(labour.get("totalTax")),
                     total_amount=dec(labour.get("amount")),
-                )
+                ))
+        CurrentPart.objects.bulk_create(current_parts, batch_size=BATCH_SIZE)
+        CurrentLabour.objects.bulk_create(current_labours, batch_size=BATCH_SIZE)
 
     def import_invoices(self, data, maps):
         for row in data["invoices"]:
