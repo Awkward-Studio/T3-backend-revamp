@@ -1,6 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.test import TestCase
+from django.urls import reverse
 
 from users.models import RoleName
 
@@ -31,6 +32,22 @@ class SeedDefaultUsersTests(TestCase):
         admin = User.objects.get(email="admin@example.com")
         self.assertTrue(admin.is_staff)
         self.assertTrue(admin.is_superuser)
+
+    def test_seed_default_users_creates_django_superuser_for_admin_site(self):
+        User = get_user_model()
+
+        call_command("seed_default_users")
+
+        admin = User.objects.get(email="admin@example.com")
+        self.assertTrue(admin.is_active)
+        self.assertTrue(admin.is_staff)
+        self.assertTrue(admin.is_superuser)
+        self.assertTrue(
+            self.client.login(username="admin@example.com", password="Changeme")
+        )
+
+        response = self.client.get(reverse("admin:index"))
+        self.assertEqual(response.status_code, 200)
 
     def test_seed_default_users_resets_default_admin_password(self):
         User = get_user_model()

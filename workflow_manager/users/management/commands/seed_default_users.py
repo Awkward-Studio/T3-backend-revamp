@@ -17,7 +17,7 @@ class Command(BaseCommand):
         admin_password = DEFAULT_PASSWORD
 
         users = [
-            # Primary admin
+            # Django superuser
             {
                 "email": admin_email,
                 "password": admin_password,
@@ -53,7 +53,12 @@ class Command(BaseCommand):
                 )
 
                 if user is None:
-                    user = User.objects.create_user(
+                    create_method = (
+                        User.objects.create_superuser
+                        if user_config.get("is_superuser")
+                        else User.objects.create_user
+                    )
+                    user = create_method(
                         username=email,
                         email=email,
                         password=user_config["password"],
