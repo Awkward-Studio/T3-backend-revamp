@@ -80,8 +80,8 @@ def main():
             # Fallback to flush for any other database engines
             print(f"Non-SQLite/Non-Postgres database detected ({engine}). Flushing data...")
             try:
-                call_command("migrate", noinput=True)
-                call_command("flush", noinput=True)
+                call_command("migrate", no_input=True)
+                call_command("flush", no_input=True)
                 print("Database flushed successfully.")
             except Exception as e:
                 print(f"Error flushing database: {e}")
