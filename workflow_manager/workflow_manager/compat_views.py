@@ -1821,7 +1821,7 @@ class CompatCarsView(CompatAPIView):
 
 
 class CompatCarSearchView(CompatAPIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
     def get(self, request):
         car_number = request.query_params.get("carNumber")
@@ -2140,22 +2140,23 @@ class CompatJobCardsView(CompatAPIView):
 
 
 class CompatJobCardDetailView(CompatAPIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
     def get(self, request, pk):
         jobcard = get_object_or_404(JobCard, pk=pk)
-        if request.user.has_role(RoleName.MECHANIC) and not _is_assigned_mechanic(
-            request.user, jobcard
-        ):
-            return Response(
-                {"error": "You can only access vehicles assigned to you."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        if not _can_access_post_mechanic_jobcard(request.user, jobcard):
-            return Response(
-                {"error": "This vehicle is not available for your role yet."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        if getattr(request.user, "is_authenticated", False):
+            if request.user.has_role(RoleName.MECHANIC) and not _is_assigned_mechanic(
+                request.user, jobcard
+            ):
+                return Response(
+                    {"error": "You can only access vehicles assigned to you."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            if not _can_access_post_mechanic_jobcard(request.user, jobcard):
+                return Response(
+                    {"error": "This vehicle is not available for your role yet."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
         return Response(serialize_jobcard(jobcard))
 
     def patch(self, request, pk):
@@ -2835,7 +2836,7 @@ class CompatCustomerPortalApprovalView(CompatAPIView):
 
 
 class CompatPartsView(CompatAPIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
     def get(self, request):
         items = [
@@ -2965,14 +2966,17 @@ class CompatLabourDetailView(CompatAPIView):
 
 
 class CompatInvoicesView(CompatAPIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
     def get(self, request):
         qs = Invoice.objects.all().order_by("-created_at")
+        changed_gte = _safe_dt(request.query_params.get("changed_gte"))
         created_gte = _safe_dt(request.query_params.get("created_gte"))
         created_lte = _safe_dt(request.query_params.get("created_lte"))
         invoice_type = request.query_params.get("invoiceType")
         invoice_series = request.query_params.get("invoiceSeries")
+        if changed_gte:
+            qs = qs.filter(Q(created_at__gte=changed_gte) | Q(updated_at__gte=changed_gte))
         if created_gte:
             qs = qs.filter(created_at__gte=created_gte)
         if created_lte:
