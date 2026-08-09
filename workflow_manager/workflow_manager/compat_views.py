@@ -769,18 +769,17 @@ def _normalize_post_delivery_images(images):
     return [image for image in (images or []) if isinstance(image, dict)]
 
 
+MINIMUM_POST_DELIVERY_IMAGES_COUNT = 2
+
 def _has_all_post_delivery_images(images):
-    provided_types = {
-        str(image.get("imageType") or "").strip().lower()
-        for image in _normalize_post_delivery_images(images)
-        if image.get("imageType")
-    }
-    missing_types = [
-        image_type
-        for image_type in POST_DELIVERY_REQUIRED_IMAGE_TYPES
-        if image_type.strip().lower() not in provided_types
+    valid_images = [
+        img for img in _normalize_post_delivery_images(images)
+        if img.get("imageType") or img.get("imageURL") or img.get("thumbnailURL")
     ]
-    return len(missing_types) == 0, missing_types
+    is_valid = len(valid_images) >= MINIMUM_POST_DELIVERY_IMAGES_COUNT
+    missing_count = max(0, MINIMUM_POST_DELIVERY_IMAGES_COUNT - len(valid_images))
+    missing_info = [f"At least {missing_count} more photo(s) required"] if missing_count > 0 else []
+    return is_valid, missing_info
 
 
 def _normalize_mechanic_task(task, index=0):
@@ -2633,7 +2632,7 @@ class CompatPostDeliveryInspectionView(CompatAPIView):
         if not has_all_images:
             return Response(
                 {
-                    "error": "All final handover photos are required before submitting Post Delivery Inspection.",
+                    "error": "At least 2 handover photos are required before submitting Post Delivery Inspection.",
                     "missingImageTypes": missing_image_types,
                 },
                 status=status.HTTP_400_BAD_REQUEST,
