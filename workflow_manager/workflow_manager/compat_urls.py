@@ -38,6 +38,7 @@ from .compat_views import (
     CompatWalletAddCreditView,
     CompatWalletDetailView,
     CompatWalletsView,
+    CompatTodayOperationsView,
 )
 
 urlpatterns = [
@@ -171,5 +172,10 @@ urlpatterns = [
         "insurance-providers/<uuid:pk>/",
         CompatInsuranceProviderDetailView.as_view(),
         name="compat-insurance-provider-detail",
+    ),
+    path(
+        "dashboard/today/",
+        CompatTodayOperationsView.as_view(),
+        name="compat-dashboard-today",
     ),
 ]
