@@ -739,3 +739,181 @@ class JobCardCompanyFieldsTests(TestCase):
         self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
         self.assertEqual(detail_response.data["companyName"], "ABC Logistics Pvt. Ltd.")
         self.assertEqual(detail_response.data["companyPhoneNumber"], "+91 9876543210")
+
+
+class BodyshopOnlyWorkflowTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user_model = get_user_model()
+
+        self.service_role, _ = Role.objects.get_or_create(name=RoleName.SERVICE)
+        self.mechanic_role, _ = Role.objects.get_or_create(name=RoleName.MECHANIC)
+
+        self.service_user = self.user_model.objects.create_user(
+            username="service-bodyshop",
+            email="service-bodyshop@example.com",
+            password="password123",
+        )
+        self.service_user.roles.add(self.service_role)
+
+        self.mechanic_user = self.user_model.objects.create_user(
+            username="mechanic-bodyshop",
+            email="mechanic-bodyshop@example.com",
+            password="password123",
+        )
+        self.mechanic_user.roles.add(self.mechanic_role)
+
+        # 1. Bodyshop Only Car & TempCar
+        self.bodyshop_car = Car.objects.create(
+            car_number="MH01BS0001",
+            car_make="Hyundai",
+            car_model="Creta",
+            customer_name="Bodyshop Customer",
+            customer_phone="9999999111",
+        )
+        self.bodyshop_temp_car = TempCar.objects.create(
+            car=self.bodyshop_car,
+            purpose_of_visit_and_advisors=[
+                {
+                    "purposeOfVisitCode": 1,
+                    "description": "Bodyshop",
+                    "advisorEmail": self.service_user.email,
+                }
+            ],
+        )
+
+        # 2. Mixed Purpose Car & TempCar (Bodyshop + General Visit)
+        self.mixed_car = Car.objects.create(
+            car_number="MH01BS0002",
+            car_make="Tata",
+            car_model="Nexon",
+            customer_name="Mixed Customer",
+            customer_phone="9999999222",
+        )
+        self.mixed_temp_car = TempCar.objects.create(
+            car=self.mixed_car,
+            purpose_of_visit_and_advisors=[
+                {
+                    "purposeOfVisitCode": 1,
+                    "description": "Bodyshop",
+                    "advisorEmail": self.service_user.email,
+                },
+                {
+                    "purposeOfVisitCode": 0,
+                    "description": "General visit",
+                    "advisorEmail": self.service_user.email,
+                },
+            ],
+        )
+
+    def test_bodyshop_only_jobcard_creation_sets_status_to_customer_approved(self):
+        self.client.force_authenticate(user=self.service_user)
+
+        response = self.client.post(
+            "/api/compat/jobcards/",
+            {
+                "carId": str(self.bodyshop_temp_car.pk),
+                "carNumber": self.bodyshop_car.car_number,
+                "customerName": self.bodyshop_car.customer_name,
+                "customerPhone": self.bodyshop_car.customer_phone,
+                "purposeOfVisit": "Bodyshop",
+                "assignedMechanicId": str(self.mechanic_user.pk),
+                "requiredDate": "2026-09-10",
+                "recommendedLabour": [{"name": "Dent Removal", "estimatedCost": 2000}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            response.data["workflowStatus"], JobCard.WorkflowStatus.CUSTOMER_APPROVED
+        )
+
+        jobcard = JobCard.objects.get(pk=response.data["$id"])
+        self.assertEqual(
+            jobcard.workflow_status, JobCard.WorkflowStatus.CUSTOMER_APPROVED
+        )
+
+    def test_mixed_purpose_jobcard_creation_requires_customer_approval(self):
+        self.client.force_authenticate(user=self.service_user)
+
+        response = self.client.post(
+            "/api/compat/jobcards/",
+            {
+                "carId": str(self.mixed_temp_car.pk),
+                "carNumber": self.mixed_car.car_number,
+                "customerName": self.mixed_car.customer_name,
+                "customerPhone": self.mixed_car.customer_phone,
+                "purposeOfVisit": "Bodyshop",
+                "assignedMechanicId": str(self.mechanic_user.pk),
+                "requiredDate": "2026-09-10",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            response.data["workflowStatus"], JobCard.WorkflowStatus.JOB_CARD_CREATED
+        )
+
+    def test_send_approval_endpoint_blocked_for_bodyshop_only_jobs(self):
+        self.client.force_authenticate(user=self.service_user)
+
+        creation_res = self.client.post(
+            "/api/compat/jobcards/",
+            {
+                "carId": str(self.bodyshop_temp_car.pk),
+                "carNumber": self.bodyshop_car.car_number,
+                "customerName": self.bodyshop_car.customer_name,
+                "customerPhone": self.bodyshop_car.customer_phone,
+                "purposeOfVisit": "Bodyshop",
+                "assignedMechanicId": str(self.mechanic_user.pk),
+                "requiredDate": "2026-09-10",
+                "recommendedLabour": [{"name": "Bumper Painting", "estimatedCost": 3500}],
+            },
+            format="json",
+        )
+        jobcard_id = creation_res.data["$id"]
+
+        approval_res = self.client.post(
+            f"/api/compat/jobcards/{jobcard_id}/send-approval/",
+            {"recommendedLabour": [{"name": "Bumper Painting", "estimatedCost": 3500}]},
+            format="json",
+        )
+
+        self.assertEqual(approval_res.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            approval_res.data["error"],
+            "Customer approval is not required for Bodyshop-only jobs.",
+        )
+
+    def test_mechanic_can_open_and_process_bodyshop_only_jobcard(self):
+        self.client.force_authenticate(user=self.service_user)
+
+        creation_res = self.client.post(
+            "/api/compat/jobcards/",
+            {
+                "carId": str(self.bodyshop_temp_car.pk),
+                "carNumber": self.bodyshop_car.car_number,
+                "customerName": self.bodyshop_car.customer_name,
+                "customerPhone": self.bodyshop_car.customer_phone,
+                "purposeOfVisit": "Bodyshop",
+                "assignedMechanicId": str(self.mechanic_user.pk),
+                "requiredDate": "2026-09-10",
+                "recommendedLabour": [{"name": "Door Repair", "estimatedCost": 1500}],
+            },
+            format="json",
+        )
+        jobcard_id = creation_res.data["$id"]
+
+        # Mechanic opens jobcard
+        self.client.force_authenticate(user=self.mechanic_user)
+        open_res = self.client.post(f"/api/compat/mechanic/jobcards/{jobcard_id}/open/")
+
+        self.assertEqual(open_res.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            open_res.data["workflowStatus"], JobCard.WorkflowStatus.MECHANIC_IN_PROGRESS
+        )
+        checklist_names = [task["name"] for task in open_res.data["mechanicChecklist"]]
+        self.assertIn("Door Repair", checklist_names)
+

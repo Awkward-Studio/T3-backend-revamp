@@ -189,6 +189,7 @@ class InventoryQuoteFlowTests(TestCase):
             job_card_status=4,
             customer_name="Test Customer",
             customer_phone="9999999999",
+            workflow_status=JobCard.WorkflowStatus.POST_DELIVERY_COMPLETED,
         )
         CurrentPart.objects.create(
             job_card=jobcard,

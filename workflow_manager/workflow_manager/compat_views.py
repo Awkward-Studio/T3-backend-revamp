@@ -36,6 +36,7 @@ from jobcards.approval_services import (
     CustomerApprovalError,
     create_customer_approval,
     get_latest_customer_approval,
+    is_bodyshop_only,
     submit_customer_approval,
 )
 from jobcards.models import ApprovalItem, CurrentPart, CustomerApproval, JobCard
@@ -673,6 +674,30 @@ def _group_approval_items(jobcard):
 
     if not approval_items and jobcard.approved_items:
         approved_items = list(jobcard.approved_items or [])
+
+    if not approval_items and not approved_items and is_bodyshop_only(jobcard):
+        labour_sources = jobcard.recommended_labour or []
+        if not labour_sources and jobcard.labour_checklist:
+            labour_sources = [{"name": item} for item in jobcard.labour_checklist]
+        if not labour_sources and jobcard.labour:
+            labour_sources = [
+                {"name": item.get("labourName", "Labour")}
+                for item in jobcard.labour
+                if isinstance(item, dict)
+            ]
+
+        approved_items = [
+            {
+                "id": f"bodyshop-labour-{idx}",
+                "type": "LABOUR",
+                "name": item.get("name") if isinstance(item, dict) else str(item),
+                "description": item.get("description", "") if isinstance(item, dict) else "",
+                "estimatedCost": float(item.get("estimatedCost", 0)) if isinstance(item, dict) else 0.0,
+                "image": item.get("image", "") if isinstance(item, dict) else "",
+                "approved": True,
+            }
+            for idx, item in enumerate(labour_sources)
+        ]
 
     return {
         "approvedLabour": [
@@ -2084,8 +2109,12 @@ class CompatJobCardsView(CompatAPIView):
             "recommended_labour": request.data.get("recommendedLabour", []),
             "recommended_parts": request.data.get("recommendedParts", []),
             "advisor_notes": request.data.get("advisorNotes", ""),
-            "workflow_status": request.data.get(
-                "workflowStatus", JobCard.WorkflowStatus.JOB_CARD_CREATED
+            "workflow_status": (
+                JobCard.WorkflowStatus.CUSTOMER_APPROVED
+                if is_bodyshop_only(temp_car)
+                else request.data.get(
+                    "workflowStatus", JobCard.WorkflowStatus.JOB_CARD_CREATED
+                )
             ),
             "car_fuel": request.data.get("carFuel", ""),
             "bat_odometer": request.data.get("carOdometer", ""),
@@ -2705,6 +2734,11 @@ class CompatJobCardSendApprovalView(CompatAPIView):
 
     def post(self, request, pk):
         jobcard = get_object_or_404(JobCard, pk=pk)
+        if is_bodyshop_only(jobcard):
+            return Response(
+                {"error": "Customer approval is not required for Bodyshop-only jobs."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if not _is_assigned_service_advisor(request.user, jobcard):
             return Response(
                 {
