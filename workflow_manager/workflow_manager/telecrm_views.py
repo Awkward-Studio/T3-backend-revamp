@@ -1,12 +1,12 @@
 from rest_framework import status
-from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
 from users.permissions import IsAdmin
+from .compat_views import CompatAPIView
 from .telecrm_service import build_dashboard, missing_config, sync_eligible_leads, TelecrmError
 
 
-class CompatTelecrmDashboardView(GenericAPIView):
+class CompatTelecrmDashboardView(CompatAPIView):
     permission_classes = [IsAdmin]
 
     def get(self, request):
@@ -20,7 +20,7 @@ class CompatTelecrmDashboardView(GenericAPIView):
             return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
 
 
-class CompatTelecrmLeadSyncView(GenericAPIView):
+class CompatTelecrmLeadSyncView(CompatAPIView):
     permission_classes = [IsAdmin]
 
     def get(self, request):

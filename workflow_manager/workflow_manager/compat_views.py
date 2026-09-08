@@ -56,6 +56,8 @@ from users.user_management import (
 )
 from vehicle_management.models import Car, CustomerPortal, TempCar
 
+from .caller_service import caller_car_records
+
 COLLECTION_ID_MAP = {
     "66e80a830013e7a81f31": "jobcards",
     "66e933af0022ed863b96": "temp-cars",
@@ -1788,6 +1790,15 @@ class CompatCarsView(CompatAPIView):
 
     def get(self, request):
         cars = Car.objects.all().order_by("-id")
+        created_lte = _safe_dt(request.query_params.get("created_lte"))
+        if created_lte:
+            items = []
+            for record in caller_car_records(created_lte):
+                payload = serialize_car(record["car"])
+                payload["customerName"] = record["customer_name"]
+                payload["customerPhone"] = record["customer_phone"]
+                items.append(payload)
+            return Response(_list_response(items))
         updated_before = _safe_dt(request.query_params.get("updated_before"))
         if updated_before:
             cars = cars.filter(updated_at__lte=updated_before)

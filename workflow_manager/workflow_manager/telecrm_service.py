@@ -2,7 +2,8 @@ import hashlib
 import json
 import os
 import re
-from collections import Counter, defaultdict
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import timedelta
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -10,7 +11,9 @@ from urllib.request import Request, urlopen
 
 from django.utils import timezone
 
-from jobcards.models import JobCard, TelecrmLeadSync
+from jobcards.models import TelecrmLeadSync
+
+from .caller_service import caller_car_records
 
 
 CALL_TYPES = [
@@ -34,6 +37,14 @@ FOLLOWUP_TYPES = [
 
 class TelecrmError(RuntimeError):
     pass
+
+
+def _env_int(name, default, minimum, maximum):
+    try:
+        value = int(os.getenv(name, default))
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(value, maximum))
 
 
 def _config():
@@ -63,7 +74,8 @@ def _request(url, token, method="GET", body=None, query=None):
     request.add_header("Authorization", f"Bearer {token}")
     request.add_header("Content-Type", "application/json")
     try:
-        with urlopen(request, timeout=25) as response:
+        timeout = _env_int("TELECRM_REQUEST_TIMEOUT_SECONDS", 5, 1, 30)
+        with urlopen(request, timeout=timeout) as response:
             raw = response.read().decode("utf-8")
             return json.loads(raw) if raw else {}
     except HTTPError as exc:
@@ -94,22 +106,40 @@ class TelecrmSyncClient:
         first = self.search(limit=100)
         results = list(first.get("results", first.get("data", [])) or [])
         total = int(first.get("total_count", first.get("totalCount", len(results))) or 0)
-        while len(results) < total:
-            response = self.search(limit=100, skip=len(results))
-            batch = response.get("results", response.get("data", [])) or []
-            if not batch:
-                break
-            results.extend(batch)
-        return results
+        maximum = _env_int("TELECRM_DASHBOARD_MAX_LEADS", 2000, 100, 20000)
+        target = min(total, maximum)
+        skips = list(range(len(results), target, 100))
+        if skips:
+            workers = _env_int("TELECRM_DASHBOARD_WORKERS", 8, 1, 12)
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                pages = executor.map(
+                    lambda skip: self.search(limit=100, skip=skip),
+                    skips,
+                )
+                for response in pages:
+                    results.extend(response.get("results", response.get("data", [])) or [])
+        return results[:target], total
 
     def team(self):
-        members = []
-        while True:
-            result = self.call("/team-members", query={"skip": len(members), "limit": 10})
-            batch = result.get("results", result.get("data", [])) or []
-            members.extend(batch)
-            if not batch or len(members) >= int(result.get("total_count", len(members))):
-                return members
+        first = self.call("/team-members", query={"skip": 0, "limit": 10})
+        members = list(first.get("results", first.get("data", [])) or [])
+        total = int(first.get("total_count", len(members)) or 0)
+        skips = list(range(len(members), total, 10))
+        if skips:
+            workers = _env_int("TELECRM_DASHBOARD_WORKERS", 8, 1, 12)
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                pages = executor.map(
+                    lambda skip: self.call(
+                        "/team-members",
+                        query={"skip": skip, "limit": 10},
+                    ),
+                    skips,
+                )
+                for response in pages:
+                    members.extend(
+                        response.get("results", response.get("data", [])) or []
+                    )
+        return members
 
     def pipeline(self):
         return self.call("/lead-stage-pipeline")
@@ -132,63 +162,117 @@ def _period_filter(days, action_types, performer=None):
 def build_dashboard(days=30):
     client = TelecrmSyncClient()
     warnings = []
-
-    def safe(label, callback, default):
-        try:
-            return callback()
-        except TelecrmError as exc:
-            warnings.append(f"{label}: {exc}")
-            return default
-
-    leads = safe("Lead list", client.all_leads, [])
-    fields = [item.get("fields", item) for item in leads]
-    team = safe("Team members", client.team, [])
-    pipeline = safe("Pipeline", client.pipeline, {})
-    from_ms = int((timezone.now() - timedelta(days=days)).timestamp() * 1000)
-    to_ms = int(timezone.now().timestamp() * 1000)
-
-    def counts(key):
-        return dict(Counter(str(item.get(key) or "Unspecified") for item in fields))
-
-    activity = {}
-    for key, types in {
+    workers = _env_int("TELECRM_DASHBOARD_WORKERS", 8, 1, 12)
+    activity_types = {
         "contacted": CALL_TYPES,
         "outgoing": OUTGOING_TYPES,
         "incoming": INCOMING_TYPES,
         "missed": MISSED_TYPES,
         "messaged": MESSAGE_TYPES,
         "followupsCompleted": FOLLOWUP_TYPES,
-    }.items():
-        activity[key] = safe(key, lambda t=types: client.count(_period_filter(days, t)), 0)
+    }
+    from_ms = int((timezone.now() - timedelta(days=days)).timestamp() * 1000)
+    to_ms = int(timezone.now().timestamp() * 1000)
 
-    agents = []
-    for member in team:
-        email = member.get("email") or member.get("id")
-        handled = safe(
-            f"Activity for {email}",
-            lambda e=email: client.count(_period_filter(days, CALL_TYPES, e)) if e else 0,
+    calls = {
+        "leads": ("Lead list", client.all_leads, ([], 0)),
+        "team": ("Team members", client.team, []),
+        "pipeline": ("Pipeline", client.pipeline, {}),
+        "new_count": (
+            "New leads",
+            lambda: client.count(
+                {"fields": {"created_on": {"from": from_ms, "to": to_ms}}}
+            ),
+            0,
+        ),
+    }
+    for key, types in activity_types.items():
+        calls[f"activity:{key}"] = (
+            key,
+            lambda action_types=types: client.count(
+                _period_filter(days, action_types)
+            ),
             0,
         )
+
+    values = {}
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(callback): (key, label, default)
+            for key, (label, callback, default) in calls.items()
+        }
+        for future in as_completed(futures):
+            key, label, default = futures[future]
+            try:
+                values[key] = future.result()
+            except (TelecrmError, TypeError, ValueError) as exc:
+                warnings.append(f"{label}: {exc}")
+                values[key] = default
+
+    leads, total_leads = values["leads"]
+    if len(leads) < total_leads:
+        warnings.append(
+            f"Lead breakdowns use the first {len(leads)} of {total_leads} leads "
+            "to keep the dashboard responsive."
+        )
+    fields = [item.get("fields", item) for item in leads]
+    team = values["team"]
+    pipeline = values["pipeline"]
+
+    def counts(key):
+        return dict(Counter(str(item.get(key) or "Unspecified") for item in fields))
+
+    activity = {
+        key: values[f"activity:{key}"]
+        for key in activity_types
+    }
+
+    agent_emails = [member.get("email") or member.get("id") for member in team]
+    maximum_agent_metrics = _env_int(
+        "TELECRM_DASHBOARD_MAX_AGENT_METRICS", 24, 1, 100
+    )
+    measured_emails = [email for email in agent_emails if email][
+        :maximum_agent_metrics
+    ]
+    if len(measured_emails) < len([email for email in agent_emails if email]):
+        warnings.append(
+            f"Caller activity is shown for the first {len(measured_emails)} "
+            "team members to keep the dashboard responsive."
+        )
+    handled_by_email = {}
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(
+                client.count,
+                _period_filter(days, CALL_TYPES, email),
+            ): email
+            for email in measured_emails
+        }
+        for future in as_completed(futures):
+            email = futures[future]
+            try:
+                handled_by_email[email] = future.result()
+            except (TelecrmError, TypeError, ValueError) as exc:
+                warnings.append(f"Activity for {email}: {exc}")
+                handled_by_email[email] = 0
+
+    agents = []
+    for member, email in zip(team, agent_emails):
         agents.append({
             "name": member.get("name") or member.get("full_name") or email or "Unknown",
             "email": email,
             "status": member.get("status") or ("Active" if member.get("is_active") else "Unknown"),
             "license": (member.get("license") or {}).get("type") if isinstance(member.get("license"), dict) else member.get("license") or "—",
-            "distinctLeadsHandled": handled,
+            "distinctLeadsHandled": handled_by_email.get(email),
         })
 
-    new_count = safe(
-        "New leads",
-        lambda: client.count({"fields": {"created_on": {"from": from_ms, "to": to_ms}}}),
-        0,
-    )
     return {
         "configured": True,
         "periodDays": days,
         "generatedAt": timezone.now().isoformat(),
         "summary": {
-            "totalLeads": len(leads),
-            "newLeads": new_count,
+            "totalLeads": total_leads,
+            "newLeads": values["new_count"],
             "unassigned": sum(1 for item in fields if not item.get("assignee")),
         },
         "activity": activity,
@@ -211,47 +295,24 @@ def normalize_phone(value):
 
 def eligible_leads(days=90):
     cutoff = timezone.now() - timedelta(days=days)
-    latest_by_car = {}
-    queryset = JobCard.objects.exclude(post_delivery_completed_at=None).order_by("-post_delivery_completed_at")
-    for jobcard in queryset:
-        car = re.sub(r"[^A-Z0-9]", "", (jobcard.car_number or "").upper())
-        if car and car not in latest_by_car:
-            latest_by_car[car] = jobcard
-
-    grouped = defaultdict(list)
+    leads_by_phone = {}
     invalid = 0
-    for jobcard in latest_by_car.values():
-        if jobcard.post_delivery_completed_at > cutoff:
-            continue
-        phone = normalize_phone(jobcard.customer_phone)
+    for record in caller_car_records(cutoff):
+        phone = normalize_phone(record["customer_phone"])
         if not phone:
             invalid += 1
             continue
-        grouped[phone].append(jobcard)
-
-    fields = {
-        "cars": os.getenv("TELECRM_FIELD_CAR_NUMBERS", "").strip(),
-        "service_date": os.getenv("TELECRM_FIELD_LAST_SERVICE_DATE", "").strip(),
-        "jobcards": os.getenv("TELECRM_FIELD_T3_JOB_CARD", "").strip(),
-        "source": os.getenv("TELECRM_FIELD_SOURCE", "").strip(),
-    }
-    leads = []
-    for phone, jobcards in grouped.items():
-        newest = max(jobcards, key=lambda item: item.post_delivery_completed_at)
-        payload = {"name": newest.customer_name or phone, "phone": phone}
-        optional = {
-            fields["cars"]: ", ".join(sorted({item.car_number for item in jobcards})),
-            fields["service_date"]: int(newest.post_delivery_completed_at.timestamp() * 1000),
-            fields["jobcards"]: ", ".join(str(item.job_card_number) for item in jobcards),
-            fields["source"]: "T3 90-Day Follow-up",
-        }
-        payload.update({key: value for key, value in optional.items() if key})
-        if os.getenv("TELECRM_90_DAY_STATUS"):
-            payload["status"] = os.getenv("TELECRM_90_DAY_STATUS")
-        if os.getenv("TELECRM_90_DAY_ASSIGNEE"):
-            payload["assignee"] = os.getenv("TELECRM_90_DAY_ASSIGNEE")
-        leads.append({"phone": phone, "payload": payload})
-    return leads, invalid
+        leads_by_phone.setdefault(
+            phone,
+            {
+                "phone": phone,
+                "payload": {
+                    "name": record["customer_name"] or phone,
+                    "phone": phone,
+                },
+            },
+        )
+    return list(leads_by_phone.values()), invalid
 
 
 def sync_eligible_leads(days=90, dry_run=False):

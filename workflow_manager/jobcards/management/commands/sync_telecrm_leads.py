@@ -4,7 +4,7 @@ from workflow_manager.telecrm_service import missing_config, sync_eligible_leads
 
 
 class Command(BaseCommand):
-    help = "Queue customers whose latest completed service was at least 90 days ago in TeleCRM."
+    help = "Queue the same 90-day-old customer list shown on the Caller page in TeleCRM."
 
     def add_arguments(self, parser):
         parser.add_argument("--days", type=int, default=90)
