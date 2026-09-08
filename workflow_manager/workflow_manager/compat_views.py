@@ -36,6 +36,7 @@ from jobcards.approval_services import (
     CustomerApprovalError,
     create_customer_approval,
     get_latest_customer_approval,
+    is_bodyshop_only,
     submit_customer_approval,
 )
 from jobcards.models import ApprovalItem, CurrentPart, CustomerApproval, JobCard
@@ -513,7 +514,7 @@ def serialize_customer_approval(approval, include_job_card=False):
     return payload
 
 
-def _temp_car_service_actions(temp_car):
+def _temp_car_service_actions(temp_car, job_card_map=None, approval_map=None):
     job_card_exists = bool(temp_car.job_card_id)
     customer_approval_exists = False
     approval_link = None
@@ -523,7 +524,12 @@ def _temp_car_service_actions(temp_car):
     current_workflow_status = None
 
     if temp_car.job_card_id:
-        jobcard = JobCard.objects.filter(pk=temp_car.job_card_id).first()
+        jobcard = None
+        if job_card_map is not None:
+            jobcard = job_card_map.get(temp_car.job_card_id)
+        else:
+            jobcard = JobCard.objects.filter(pk=temp_car.job_card_id).first()
+
         if jobcard:
             current_workflow_status = jobcard.workflow_status
             ready_for_post_delivery_inspection = _jobcard_ready_for_post_delivery(
@@ -532,7 +538,13 @@ def _temp_car_service_actions(temp_car):
             post_delivery_inspection_completed = _jobcard_post_delivery_completed(
                 jobcard
             )
-            approval = get_latest_customer_approval(jobcard)
+            
+            approval = None
+            if approval_map is not None:
+                approval = approval_map.get(temp_car.job_card_id)
+            else:
+                approval = get_latest_customer_approval(jobcard)
+                
             if approval:
                 customer_approval_exists = True
                 approval_status = approval.status
@@ -549,7 +561,7 @@ def _temp_car_service_actions(temp_car):
     }
 
 
-def serialize_temp_car(temp_car):
+def serialize_temp_car(temp_car, job_card_map=None, approval_map=None):
     payload = {
         **_doc_meta(temp_car, "temp-cars"),
         "carNumber": temp_car.car.car_number,
@@ -561,7 +573,7 @@ def serialize_temp_car(temp_car):
         "allJobCardIds": temp_car.all_job_card_ids or [],
         "carStatus": temp_car.car_status,
         "carsTableId": temp_car.cars_table_id or str(temp_car.car_id),
-        **_temp_car_service_actions(temp_car),
+        **_temp_car_service_actions(temp_car, job_card_map, approval_map),
     }
     return payload
 
@@ -662,6 +674,30 @@ def _group_approval_items(jobcard):
 
     if not approval_items and jobcard.approved_items:
         approved_items = list(jobcard.approved_items or [])
+
+    if not approval_items and not approved_items and is_bodyshop_only(jobcard):
+        labour_sources = jobcard.recommended_labour or []
+        if not labour_sources and jobcard.labour_checklist:
+            labour_sources = [{"name": item} for item in jobcard.labour_checklist]
+        if not labour_sources and jobcard.labour:
+            labour_sources = [
+                {"name": item.get("labourName", "Labour")}
+                for item in jobcard.labour
+                if isinstance(item, dict)
+            ]
+
+        approved_items = [
+            {
+                "id": f"bodyshop-labour-{idx}",
+                "type": "LABOUR",
+                "name": item.get("name") if isinstance(item, dict) else str(item),
+                "description": item.get("description", "") if isinstance(item, dict) else "",
+                "estimatedCost": float(item.get("estimatedCost", 0)) if isinstance(item, dict) else 0.0,
+                "image": item.get("image", "") if isinstance(item, dict) else "",
+                "approved": True,
+            }
+            for idx, item in enumerate(labour_sources)
+        ]
 
     return {
         "approvedLabour": [
@@ -769,18 +805,17 @@ def _normalize_post_delivery_images(images):
     return [image for image in (images or []) if isinstance(image, dict)]
 
 
+MINIMUM_POST_DELIVERY_IMAGES_COUNT = 2
+
 def _has_all_post_delivery_images(images):
-    provided_types = {
-        str(image.get("imageType") or "").strip().lower()
-        for image in _normalize_post_delivery_images(images)
-        if image.get("imageType")
-    }
-    missing_types = [
-        image_type
-        for image_type in POST_DELIVERY_REQUIRED_IMAGE_TYPES
-        if image_type.strip().lower() not in provided_types
+    valid_images = [
+        img for img in _normalize_post_delivery_images(images)
+        if img.get("imageType") or img.get("imageURL") or img.get("thumbnailURL")
     ]
-    return len(missing_types) == 0, missing_types
+    is_valid = len(valid_images) >= MINIMUM_POST_DELIVERY_IMAGES_COUNT
+    missing_count = max(0, MINIMUM_POST_DELIVERY_IMAGES_COUNT - len(valid_images))
+    missing_info = [f"At least {missing_count} more photo(s) required"] if missing_count > 0 else []
+    return is_valid, missing_info
 
 
 def _normalize_mechanic_task(task, index=0):
@@ -1896,7 +1931,22 @@ class CompatTempCarsView(CompatAPIView):
         term = request.query_params.get("q")
         if term:
             qs = qs.filter(car__car_number__icontains=term)
-        return Response(_list_response([serialize_temp_car(item) for item in qs]))
+
+        temp_cars = list(qs)
+        job_card_ids = [tc.job_card_id for tc in temp_cars if tc.job_card_id]
+        job_card_map = {}
+        approval_map = {}
+        if job_card_ids:
+            job_cards = JobCard.objects.filter(pk__in=job_card_ids)
+            job_card_map = {str(jc.pk): jc for jc in job_cards}
+            approvals = CustomerApproval.objects.filter(job_card_id__in=job_card_ids).order_by("created_at")
+            for app in approvals:
+                approval_map[str(app.job_card_id)] = app
+
+        return Response(_list_response([
+            serialize_temp_car(item, job_card_map=job_card_map, approval_map=approval_map)
+            for item in temp_cars
+        ]))
 
     def post(self, request):
         car = get_object_or_404(Car, pk=request.data.get("carsTableId"))
@@ -1993,6 +2043,12 @@ class CompatJobCardsView(CompatAPIView):
             qs = qs.filter(created_at__gte=created_gte)
         if created_lte:
             qs = qs.filter(created_at__lte=created_lte)
+        updated_gte = _safe_dt(request.query_params.get("updated_gte"))
+        updated_lte = _safe_dt(request.query_params.get("updated_lte"))
+        if updated_gte:
+            qs = qs.filter(updated_at__gte=updated_gte)
+        if updated_lte:
+            qs = qs.filter(updated_at__lte=updated_lte)
         return Response(_list_response([serialize_jobcard(jobcard) for jobcard in qs]))
 
     def post(self, request):
@@ -2053,8 +2109,12 @@ class CompatJobCardsView(CompatAPIView):
             "recommended_labour": request.data.get("recommendedLabour", []),
             "recommended_parts": request.data.get("recommendedParts", []),
             "advisor_notes": request.data.get("advisorNotes", ""),
-            "workflow_status": request.data.get(
-                "workflowStatus", JobCard.WorkflowStatus.JOB_CARD_CREATED
+            "workflow_status": (
+                JobCard.WorkflowStatus.CUSTOMER_APPROVED
+                if is_bodyshop_only(temp_car)
+                else request.data.get(
+                    "workflowStatus", JobCard.WorkflowStatus.JOB_CARD_CREATED
+                )
             ),
             "car_fuel": request.data.get("carFuel", ""),
             "bat_odometer": request.data.get("carOdometer", ""),
@@ -2633,7 +2693,7 @@ class CompatPostDeliveryInspectionView(CompatAPIView):
         if not has_all_images:
             return Response(
                 {
-                    "error": "All final handover photos are required before submitting Post Delivery Inspection.",
+                    "error": "At least 2 handover photos are required before submitting Post Delivery Inspection.",
                     "missingImageTypes": missing_image_types,
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -2674,6 +2734,11 @@ class CompatJobCardSendApprovalView(CompatAPIView):
 
     def post(self, request, pk):
         jobcard = get_object_or_404(JobCard, pk=pk)
+        if is_bodyshop_only(jobcard):
+            return Response(
+                {"error": "Customer approval is not required for Bodyshop-only jobs."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if not _is_assigned_service_advisor(request.user, jobcard):
             return Response(
                 {
@@ -3596,3 +3661,386 @@ class CompatInsuranceProviderDetailView(CompatAPIView):
 
 
 CompatPolicyProvidersView = CompatInsuranceProvidersView
+
+
+class CompatDailyStatsView(CompatAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        date_str = request.query_params.get("date")
+        if date_str:
+            try:
+                target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            except ValueError:
+                return Response(
+                    {"error": "Invalid date format. Use YYYY-MM-DD."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            target_date = timezone.localdate()
+
+        start_dt = timezone.make_aware(datetime.combine(target_date, datetime.min.time()))
+        end_dt = timezone.make_aware(datetime.combine(target_date, datetime.max.time()))
+
+        advisors = CustomUser.objects.filter(roles__name=RoleName.SERVICE).order_by("first_name", "username")
+        adviser_stats = []
+
+        jobcard_entries = HistoryEntry.objects.filter(
+            object_type="jobcards",
+            created_at__gte=start_dt,
+            created_at__lte=end_dt
+        )
+        closed_jobcard_ids = set()
+        for entry in jobcard_entries:
+            history_str = "".join(entry.history)
+            if "VEHICLE_COLLECTED" in history_str:
+                closed_jobcard_ids.add(entry.object_id)
+
+        for advisor in advisors:
+            email = advisor.email.strip().lower() if advisor.email else ""
+            name = f"{advisor.first_name} {advisor.last_name}".strip() or advisor.username
+            
+            opened_count = JobCard.objects.filter(
+                service_advisor_id__iexact=email,
+                created_at__gte=start_dt,
+                created_at__lte=end_dt
+            ).count()
+
+            closed_count = JobCard.objects.filter(
+                id__in=closed_jobcard_ids,
+                service_advisor_id__iexact=email
+            ).count()
+
+            closed_count_fallback = JobCard.objects.filter(
+                service_advisor_id__iexact=email,
+                workflow_status=JobCard.WorkflowStatus.VEHICLE_COLLECTED,
+                updated_at__gte=start_dt,
+                updated_at__lte=end_dt
+            ).exclude(id__in=closed_jobcard_ids).count()
+
+            total_closed = closed_count + closed_count_fallback
+
+            adviser_stats.append({
+                "email": advisor.email,
+                "name": name,
+                "opened_count": opened_count,
+                "closed_count": total_closed
+            })
+
+        billers = CustomUser.objects.filter(roles__name=RoleName.BILLER).order_by("first_name", "username")
+        biller_stats_dict = {}
+        for biller in billers:
+            email = biller.email.strip().lower() if biller.email else ""
+            biller_stats_dict[email] = {
+                "email": biller.email,
+                "name": f"{biller.first_name} {biller.last_name}".strip() or biller.username,
+                "closed_count": 0
+            }
+
+        admins = CustomUser.objects.filter(roles__name=RoleName.ADMIN).order_by("first_name", "username")
+        for admin in admins:
+            email = admin.email.strip().lower() if admin.email else ""
+            if email not in biller_stats_dict:
+                biller_stats_dict[email] = {
+                    "email": admin.email,
+                    "name": f"{admin.first_name} {admin.last_name}".strip() or admin.username,
+                    "closed_count": 0
+                }
+
+        invoice_entries = HistoryEntry.objects.filter(
+            object_type="invoice",
+            operation_type="created",
+            created_at__gte=start_dt,
+            created_at__lte=end_dt
+        )
+        invoice_ids = [entry.object_id for entry in invoice_entries]
+        tax_invoices = Invoice.objects.filter(
+            id__in=invoice_ids,
+            invoice_type__iexact="tax invoice"
+        )
+        tax_invoice_ids = set(str(inv.id) for inv in tax_invoices)
+
+        for entry in invoice_entries:
+            if entry.object_id in tax_invoice_ids:
+                email = entry.user_email.strip().lower() if entry.user_email else ""
+                if email:
+                    if email not in biller_stats_dict:
+                        biller_stats_dict[email] = {
+                            "email": email,
+                            "name": entry.user_name or email,
+                            "closed_count": 0
+                        }
+                    biller_stats_dict[email]["closed_count"] += 1
+
+        biller_stats = list(biller_stats_dict.values())
+
+        total_opened_jobcards = JobCard.objects.filter(
+            created_at__gte=start_dt,
+            created_at__lte=end_dt
+        ).count()
+
+        total_closed_jobcards = JobCard.objects.filter(
+            id__in=closed_jobcard_ids
+        ).count() + JobCard.objects.filter(
+            workflow_status=JobCard.WorkflowStatus.VEHICLE_COLLECTED,
+            updated_at__gte=start_dt,
+            updated_at__lte=end_dt
+        ).exclude(id__in=closed_jobcard_ids).count()
+
+        total_closed_bills = Invoice.objects.filter(
+            invoice_type__iexact="tax invoice",
+            created_at__gte=start_dt,
+            created_at__lte=end_dt
+        ).count()
+
+        return Response({
+            "date": target_date.strftime("%Y-%m-%d"),
+            "totals": {
+                "opened_jobcards": total_opened_jobcards,
+                "closed_jobcards": total_closed_jobcards,
+                "closed_bills": total_closed_bills,
+            },
+            "adviser_stats": adviser_stats,
+            "biller_stats": biller_stats,
+        })
+
+
+class CompatTodayOperationsView(CompatAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        target_date = timezone.localdate()
+        start_dt = timezone.make_aware(datetime.combine(target_date, datetime.min.time()))
+        end_dt = timezone.make_aware(datetime.combine(target_date, datetime.max.time()))
+
+        # 1. Job Card Activity
+        opened_today_qs = JobCard.objects.filter(
+            created_at__gte=start_dt,
+            created_at__lte=end_dt
+        )
+        opened_today_count = opened_today_qs.count()
+
+        jobcard_entries = HistoryEntry.objects.filter(
+            object_type="jobcards",
+            created_at__gte=start_dt,
+            created_at__lte=end_dt
+        )
+        closed_jobcard_ids = set()
+        for entry in jobcard_entries:
+            history_str = "".join(entry.history)
+            if "VEHICLE_COLLECTED" in history_str:
+                closed_jobcard_ids.add(entry.object_id)
+
+        closed_today_qs = JobCard.objects.filter(
+            Q(id__in=closed_jobcard_ids) |
+            Q(
+                workflow_status=JobCard.WorkflowStatus.VEHICLE_COLLECTED,
+                updated_at__gte=start_dt,
+                updated_at__lte=end_dt
+            )
+        )
+        closed_today_count = closed_today_qs.distinct().count()
+
+        currently_open_qs = JobCard.objects.exclude(
+            workflow_status=JobCard.WorkflowStatus.VEHICLE_COLLECTED
+        )
+        currently_open_count = currently_open_qs.count()
+
+        advisors = CustomUser.objects.filter(roles__name=RoleName.SERVICE).order_by("first_name", "username")
+        advisor_stats = {}
+        for adv in advisors:
+            email = adv.email.strip().lower() if adv.email else ""
+            if email:
+                advisor_stats[email] = {
+                    "email": adv.email,
+                    "name": f"{adv.first_name} {adv.last_name}".strip() or adv.username,
+                    "opened_today": 0,
+                    "closed_today": 0,
+                    "currently_open": 0
+                }
+
+        for card in opened_today_qs:
+            email = (card.service_advisor_id or "").strip().lower()
+            if email:
+                if email not in advisor_stats:
+                    advisor_stats[email] = {
+                        "email": card.service_advisor_id,
+                        "name": email,
+                        "opened_today": 0,
+                        "closed_today": 0,
+                        "currently_open": 0
+                    }
+                advisor_stats[email]["opened_today"] += 1
+
+        closed_today_cards = closed_today_qs.distinct()
+        for card in closed_today_cards:
+            email = (card.service_advisor_id or "").strip().lower()
+            if email:
+                if email not in advisor_stats:
+                    advisor_stats[email] = {
+                        "email": card.service_advisor_id,
+                        "name": email,
+                        "opened_today": 0,
+                        "closed_today": 0,
+                        "currently_open": 0
+                    }
+                advisor_stats[email]["closed_today"] += 1
+
+        for card in currently_open_qs:
+            email = (card.service_advisor_id or "").strip().lower()
+            if email:
+                if email not in advisor_stats:
+                    advisor_stats[email] = {
+                        "email": card.service_advisor_id,
+                        "name": email,
+                        "opened_today": 0,
+                        "closed_today": 0,
+                        "currently_open": 0
+                    }
+                advisor_stats[email]["currently_open"] += 1
+
+        # 2. Bills Closed Today
+        invoice_entries = HistoryEntry.objects.filter(
+            object_type="invoice",
+            operation_type="created",
+            created_at__gte=start_dt,
+            created_at__lte=end_dt
+        )
+        invoice_ids = [entry.object_id for entry in invoice_entries]
+        tax_invoices = Invoice.objects.filter(
+            id__in=invoice_ids,
+            invoice_type__iexact="tax invoice"
+        )
+        tax_invoice_ids = set(str(inv.id) for inv in tax_invoices)
+        invoice_amounts = {str(inv.id): float(inv.final_amount or 0) for inv in tax_invoices}
+
+        biller_stats = {}
+        billers = CustomUser.objects.filter(roles__name=RoleName.BILLER).order_by("first_name", "username")
+        admins = CustomUser.objects.filter(roles__name=RoleName.ADMIN).order_by("first_name", "username")
+        for u in list(billers) + list(admins):
+            email = u.email.strip().lower() if u.email else ""
+            if email:
+                biller_stats[email] = {
+                    "email": u.email,
+                    "name": f"{u.first_name} {u.last_name}".strip() or u.username,
+                    "bills_closed": 0,
+                    "total_amount": 0.0
+                }
+
+        for entry in invoice_entries:
+            if entry.object_id in tax_invoice_ids:
+                email = entry.user_email.strip().lower() if entry.user_email else ""
+                if email:
+                    if email not in biller_stats:
+                        biller_stats[email] = {
+                            "email": email,
+                            "name": entry.user_name or email,
+                            "bills_closed": 0,
+                            "total_amount": 0.0
+                        }
+                    biller_stats[email]["bills_closed"] += 1
+                    biller_stats[email]["total_amount"] += invoice_amounts.get(entry.object_id, 0.0)
+
+        bills_closed_today = tax_invoices.count()
+        total_amount_billed_today = float(sum(inv.final_amount for inv in tax_invoices) or 0)
+
+        # 3. Pending Invoice Ageing
+        pending_invoices = Invoice.objects.filter(
+            invoice_type__iexact="pro forma invoice"
+        ).select_related("job_card")
+
+        buckets = {
+            "0_1_days": 0,
+            "2_3_days": 0,
+            "4_7_days": 0,
+            "8_15_days": 0,
+            "15_plus_days": 0
+        }
+        detailed_list = []
+        now = timezone.now()
+
+        pending_invoice_ids = [str(inv.id) for inv in pending_invoices]
+        history_entries = HistoryEntry.objects.filter(
+            object_type="invoice",
+            object_id__in=pending_invoice_ids
+        ).order_by("created_at")
+
+        history_map = {}
+        for entry in history_entries:
+            if entry.object_id not in history_map:
+                history_map[entry.object_id] = []
+            history_map[entry.object_id].append(entry)
+
+        for inv in pending_invoices:
+            pending_since = None
+            entries = history_map.get(str(inv.id), [])
+            for entry in entries:
+                for change in entry.history:
+                    if isinstance(change, dict) and change.get("object") == "invoiceType" and change.get("currentState") == "pro forma invoice":
+                        pending_since = entry.created_at
+                        break
+                if pending_since:
+                    break
+
+            if not pending_since:
+                pending_since = inv.created_at
+
+            age_seconds = (now - pending_since).total_seconds()
+            age_days = max(0.0, age_seconds / 86400.0)
+
+            if age_days <= 1.0:
+                buckets["0_1_days"] += 1
+            elif age_days <= 3.0:
+                buckets["2_3_days"] += 1
+            elif age_days <= 7.0:
+                buckets["4_7_days"] += 1
+            elif age_days <= 15.0:
+                buckets["8_15_days"] += 1
+            else:
+                buckets["15_plus_days"] += 1
+
+            if age_days < 1.0:
+                hours = int(age_seconds / 3600.0)
+                age_str = f"{hours} hours" if hours > 0 else "Less than an hour"
+            else:
+                age_str = f"{int(age_days)} days"
+
+            job_card_num = inv.job_card.job_card_number if inv.job_card else None
+            customer_name = inv.job_card.customer_name if inv.job_card else ""
+            
+            detailed_list.append({
+                "job_card_id": str(inv.job_card_id) if inv.job_card_id else None,
+                "job_card_number": job_card_num,
+                "car_number": inv.car_number,
+                "customer_name": customer_name,
+                "invoice_id": str(inv.id),
+                "invoice_number": inv.invoice_number,
+                "invoice_code": inv.invoice_code or f"{inv.invoice_series}-{inv.invoice_number}",
+                "amount": float(inv.final_amount or 0),
+                "pending_since": pending_since.isoformat(),
+                "age_days": age_days,
+                "age_str": age_str
+            })
+
+        detailed_list.sort(key=lambda item: item["age_days"], reverse=True)
+
+        return Response({
+            "date": target_date.strftime("%Y-%m-%d"),
+            "job_card_activity": {
+                "opened_today": opened_today_count,
+                "closed_today": closed_today_count,
+                "currently_open": currently_open_count,
+                "advisor_stats": list(advisor_stats.values())
+            },
+            "bills_closed_today": {
+                "bills_closed": bills_closed_today,
+                "total_amount": total_amount_billed_today,
+                "biller_stats": list(biller_stats.values())
+            },
+            "pending_invoice_ageing": {
+                "buckets": buckets,
+                "detailed_list": detailed_list
+            }
+        })
+
+

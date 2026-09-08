@@ -78,7 +78,65 @@ def _build_approved_items_snapshot(items) -> list:
     ]
 
 
+def is_bodyshop_only(obj) -> bool:
+    """
+    Returns True if and ONLY if the selected Purpose of Visit is Bodyshop with no other purpose selected.
+    'obj' can be a JobCard, TempCar, or Car instance.
+    """
+    if not obj:
+        return False
+
+    temp_car = getattr(obj, "temp_car", None) or obj
+    car = getattr(temp_car, "car", None) or (obj if hasattr(obj, "car_number") else None)
+
+    pov_list = getattr(temp_car, "purpose_of_visit_and_advisors", None)
+    if pov_list is None and car:
+        pov_list = getattr(car, "purpose_of_visit_and_advisors", None)
+
+    if pov_list:
+        parsed_items = []
+        for item in pov_list:
+            if isinstance(item, str):
+                import json
+                try:
+                    parsed_items.append(json.loads(item))
+                except (json.JSONDecodeError, TypeError):
+                    parsed_items.append({"description": item})
+            elif isinstance(item, dict):
+                parsed_items.append(item)
+
+        if parsed_items:
+            codes = {
+                item.get("purposeOfVisitCode")
+                for item in parsed_items
+                if "purposeOfVisitCode" in item and item.get("purposeOfVisitCode") is not None
+            }
+            if codes:
+                return codes == {1}
+
+            descriptions = {
+                str(item.get("description", "")).strip().lower()
+                for item in parsed_items
+                if item.get("description")
+            }
+            if descriptions:
+                return descriptions == {"bodyshop"}
+
+    pov_str = getattr(obj, "purpose_of_visit", "") or getattr(car, "purpose_of_visit", "") or ""
+    if pov_str:
+        cleaned = str(pov_str).strip().lower()
+        return cleaned == "bodyshop"
+
+    return False
+
+
 def create_customer_approval(jobcard: JobCard, created_by: str = "") -> CustomerApproval:
+    if is_bodyshop_only(jobcard):
+        raise CustomerApprovalError(
+            "Customer approval is not required for Bodyshop-only jobs.",
+            status_code=400,
+        )
+
     labour_items = jobcard.recommended_labour or []
     part_items = jobcard.recommended_parts or []
 
