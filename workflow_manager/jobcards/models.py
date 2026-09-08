@@ -164,6 +164,20 @@ class JobCard(models.Model):
         return f"JobCard {self.car_id} (#{self.job_card_number})"
 
 
+class TelecrmLeadSync(models.Model):
+    """Last successfully queued TeleCRM payload for a phone number."""
+
+    phone = models.CharField(max_length=32, unique=True)
+    payload_hash = models.CharField(max_length=64, blank=True)
+    last_payload = models.JSONField(default=dict, blank=True)
+    last_queued_at = models.DateTimeField(blank=True, null=True)
+    last_error = models.TextField(blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.phone
+
+
 class CurrentPart(models.Model):
     """
     Snapshots the Product data at assignment time.

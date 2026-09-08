@@ -39,8 +39,11 @@ from .compat_views import (
     CompatWalletDetailView,
     CompatWalletsView,
 )
+from .telecrm_views import CompatTelecrmDashboardView, CompatTelecrmLeadSyncView
 
 urlpatterns = [
+    path("telecrm/dashboard/", CompatTelecrmDashboardView.as_view(), name="compat-telecrm-dashboard"),
+    path("telecrm/lead-sync/", CompatTelecrmLeadSyncView.as_view(), name="compat-telecrm-lead-sync"),
     path("auth/login/", CompatAuthLoginView.as_view(), name="compat-auth-login"),
     path("auth/logout/", CompatAuthLogoutView.as_view(), name="compat-auth-logout"),
     path("auth/me/", CompatAuthMeView.as_view(), name="compat-auth-me"),
