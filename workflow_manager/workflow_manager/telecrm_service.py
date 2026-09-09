@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from django.utils import timezone
+from django.db import transaction
 
 from jobcards.models import TelecrmLeadSync
 
@@ -102,23 +103,11 @@ class TelecrmSyncClient:
         result = self.search(filters, limit=1)
         return int(result.get("total_count", result.get("totalCount", 0)) or 0)
 
-    def all_leads(self):
-        first = self.search(limit=100)
-        results = list(first.get("results", first.get("data", [])) or [])
-        total = int(first.get("total_count", first.get("totalCount", len(results))) or 0)
-        maximum = _env_int("TELECRM_DASHBOARD_MAX_LEADS", 2000, 100, 20000)
-        target = min(total, maximum)
-        skips = list(range(len(results), target, 100))
-        if skips:
-            workers = _env_int("TELECRM_DASHBOARD_WORKERS", 8, 1, 12)
-            with ThreadPoolExecutor(max_workers=workers) as executor:
-                pages = executor.map(
-                    lambda skip: self.search(limit=100, skip=skip),
-                    skips,
-                )
-                for response in pages:
-                    results.extend(response.get("results", response.get("data", [])) or [])
-        return results[:target], total
+    def lead_snapshot(self):
+        response = self.search(limit=100)
+        leads = list(response.get("results", response.get("data", [])) or [])
+        total = int(response.get("total_count", response.get("totalCount", len(leads))) or 0)
+        return leads[:100], total
 
     def team(self):
         first = self.call("/team-members", query={"skip": 0, "limit": 10})
@@ -175,7 +164,7 @@ def build_dashboard(days=30):
     to_ms = int(timezone.now().timestamp() * 1000)
 
     calls = {
-        "leads": ("Lead list", client.all_leads, ([], 0)),
+        "leads": ("Lead list", client.lead_snapshot, ([], 0)),
         "team": ("Team members", client.team, []),
         "pipeline": ("Pipeline", client.pipeline, {}),
         "new_count": (
@@ -227,43 +216,14 @@ def build_dashboard(days=30):
         for key in activity_types
     }
 
-    agent_emails = [member.get("email") or member.get("id") for member in team]
-    maximum_agent_metrics = _env_int(
-        "TELECRM_DASHBOARD_MAX_AGENT_METRICS", 24, 1, 100
-    )
-    measured_emails = [email for email in agent_emails if email][
-        :maximum_agent_metrics
-    ]
-    if len(measured_emails) < len([email for email in agent_emails if email]):
-        warnings.append(
-            f"Caller activity is shown for the first {len(measured_emails)} "
-            "team members to keep the dashboard responsive."
-        )
-    handled_by_email = {}
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {
-            executor.submit(
-                client.count,
-                _period_filter(days, CALL_TYPES, email),
-            ): email
-            for email in measured_emails
-        }
-        for future in as_completed(futures):
-            email = futures[future]
-            try:
-                handled_by_email[email] = future.result()
-            except (TelecrmError, TypeError, ValueError) as exc:
-                warnings.append(f"Activity for {email}: {exc}")
-                handled_by_email[email] = 0
-
     agents = []
-    for member, email in zip(team, agent_emails):
+    for member in team:
+        email = member.get("email") or member.get("id")
         agents.append({
             "name": member.get("name") or member.get("full_name") or email or "Unknown",
             "email": email,
             "status": member.get("status") or ("Active" if member.get("is_active") else "Unknown"),
             "license": (member.get("license") or {}).get("type") if isinstance(member.get("license"), dict) else member.get("license") or "—",
-            "distinctLeadsHandled": handled_by_email.get(email),
         })
 
     return {
@@ -295,24 +255,27 @@ def normalize_phone(value):
 
 def eligible_leads(days=90):
     cutoff = timezone.now() - timedelta(days=days)
-    leads_by_phone = {}
+    leads_by_event = {}
     invalid = 0
     for record in caller_car_records(cutoff):
         phone = normalize_phone(record["customer_phone"])
         if not phone:
             invalid += 1
             continue
-        leads_by_phone.setdefault(
-            phone,
+        event_key = (phone, record["car_number"], record["period_date"])
+        leads_by_event.setdefault(
+            event_key,
             {
                 "phone": phone,
+                "car_number": record["car_number"],
+                "period_date": record["period_date"],
                 "payload": {
                     "name": record["customer_name"] or phone,
                     "phone": phone,
                 },
             },
         )
-    return list(leads_by_phone.values()), invalid
+    return list(leads_by_event.values()), invalid
 
 
 def sync_eligible_leads(days=90, dry_run=False):
@@ -324,26 +287,36 @@ def sync_eligible_leads(days=90, dry_run=False):
     for lead in leads:
         serialized = json.dumps(lead["payload"], sort_keys=True, separators=(",", ":"))
         fingerprint = hashlib.sha256(serialized.encode()).hexdigest()
-        record, _ = TelecrmLeadSync.objects.get_or_create(phone=lead["phone"])
-        if record.payload_hash == fingerprint and record.last_queued_at:
-            summary["unchanged"] += 1
-            continue
-        try:
-            response = _request(
-                f"{cfg['async_url']}/enterprise/{cfg['enterprise_id']}/autoupdatelead",
-                cfg["async_token"], "POST", {"fields": lead["payload"]},
+        with transaction.atomic():
+            record, _ = TelecrmLeadSync.objects.select_for_update().get_or_create(
+                phone=lead["phone"],
+                car_number=lead["car_number"],
+                period_date=lead["period_date"],
             )
-            if response.get("status") != "QUEUED":
-                raise TelecrmError(f"Unexpected async response: {response}")
-            record.payload_hash = fingerprint
-            record.last_payload = lead["payload"]
-            record.last_queued_at = timezone.now()
-            record.last_error = ""
-            record.save()
-            summary["queued"] += 1
-        except TelecrmError as exc:
-            record.last_error = str(exc)
-            record.save()
-            summary["failed"] += 1
-            summary["errors"].append({"phone": lead["phone"], "error": str(exc)})
+            if record.last_queued_at:
+                summary["unchanged"] += 1
+                continue
+            try:
+                response = _request(
+                    f"{cfg['async_url']}/enterprise/{cfg['enterprise_id']}/autoupdatelead",
+                    cfg["async_token"], "POST", {"fields": lead["payload"]},
+                )
+                if response.get("status") != "QUEUED":
+                    raise TelecrmError(f"Unexpected async response: {response}")
+                record.payload_hash = fingerprint
+                record.last_payload = lead["payload"]
+                record.last_queued_at = timezone.now()
+                record.last_error = ""
+                record.save()
+                summary["queued"] += 1
+            except TelecrmError as exc:
+                record.last_error = str(exc)
+                record.save()
+                summary["failed"] += 1
+                summary["errors"].append({
+                    "phone": lead["phone"],
+                    "carNumber": lead["car_number"],
+                    "periodDate": lead["period_date"].isoformat(),
+                    "error": str(exc),
+                })
     return summary

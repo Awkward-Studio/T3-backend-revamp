@@ -165,17 +165,27 @@ class JobCard(models.Model):
 
 
 class TelecrmLeadSync(models.Model):
-    """Last successfully queued TeleCRM payload for a phone number."""
+    """Last TeleCRM upload for one phone, vehicle, and service period."""
 
-    phone = models.CharField(max_length=32, unique=True)
+    phone = models.CharField(max_length=32)
+    car_number = models.CharField(max_length=100, blank=True)
+    period_date = models.DateField(blank=True, null=True)
     payload_hash = models.CharField(max_length=64, blank=True)
     last_payload = models.JSONField(default=dict, blank=True)
     last_queued_at = models.DateTimeField(blank=True, null=True)
     last_error = models.TextField(blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["phone", "car_number", "period_date"],
+                name="unique_telecrm_lead_period",
+            )
+        ]
+
     def __str__(self):
-        return self.phone
+        return f"{self.phone} / {self.car_number} / {self.period_date}"
 
 
 class CurrentPart(models.Model):
