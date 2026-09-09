@@ -9,8 +9,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from django.utils import timezone
 from django.db import transaction
+from django.utils import timezone
 
 from jobcards.models import TelecrmLeadSync
 
@@ -109,26 +109,11 @@ class TelecrmSyncClient:
         total = int(response.get("total_count", response.get("totalCount", len(leads))) or 0)
         return leads[:100], total
 
-    def team(self):
-        first = self.call("/team-members", query={"skip": 0, "limit": 10})
-        members = list(first.get("results", first.get("data", [])) or [])
-        total = int(first.get("total_count", len(members)) or 0)
-        skips = list(range(len(members), total, 10))
-        if skips:
-            workers = _env_int("TELECRM_DASHBOARD_WORKERS", 8, 1, 12)
-            with ThreadPoolExecutor(max_workers=workers) as executor:
-                pages = executor.map(
-                    lambda skip: self.call(
-                        "/team-members",
-                        query={"skip": skip, "limit": 10},
-                    ),
-                    skips,
-                )
-                for response in pages:
-                    members.extend(
-                        response.get("results", response.get("data", [])) or []
-                    )
-        return members
+    def team_snapshot(self):
+        response = self.call("/team-members", query={"skip": 0, "limit": 10})
+        members = list(response.get("results", response.get("data", [])) or [])
+        total = int(response.get("total_count", len(members)) or 0)
+        return members[:10], total
 
     def pipeline(self):
         return self.call("/lead-stage-pipeline")
@@ -165,7 +150,7 @@ def build_dashboard(days=30):
 
     calls = {
         "leads": ("Lead list", client.lead_snapshot, ([], 0)),
-        "team": ("Team members", client.team, []),
+        "team": ("Team members", client.team_snapshot, ([], 0)),
         "pipeline": ("Pipeline", client.pipeline, {}),
         "new_count": (
             "New leads",
@@ -205,7 +190,12 @@ def build_dashboard(days=30):
             "to keep the dashboard responsive."
         )
     fields = [item.get("fields", item) for item in leads]
-    team = values["team"]
+    team, total_team = values["team"]
+    if len(team) < total_team:
+        warnings.append(
+            f"Team details show the first {len(team)} of {total_team} members "
+            "to keep the dashboard responsive."
+        )
     pipeline = values["pipeline"]
 
     def counts(key):
@@ -238,7 +228,15 @@ def build_dashboard(days=30):
         "activity": activity,
         "breakdowns": {"status": counts("status"), "assignee": counts("assignee"), "rating": counts("rating")},
         "agents": agents,
-        "team": {"total": len(team), "active": sum(1 for item in team if str(item.get("status", "")).lower() in {"active", "working"})},
+        "team": {
+            "total": total_team,
+            "shown": len(team),
+            "activeShown": sum(
+                1
+                for item in team
+                if str(item.get("status", "")).lower() in {"active", "working"}
+            ),
+        },
         "pipeline": pipeline,
         "warnings": warnings,
     }

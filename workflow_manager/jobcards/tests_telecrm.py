@@ -167,7 +167,7 @@ class TelecrmLeadSyncTests(TestCase):
             [{"fields": {"status": "Fresh", "assignee": "agent@example.com"}}],
             2,
         )
-        client.team.return_value = []
+        client.team_snapshot.return_value = ([], 0)
         client.pipeline.return_value = {"leadStages": []}
         client.count.return_value = 3
 
