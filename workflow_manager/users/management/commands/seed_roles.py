@@ -15,6 +15,7 @@ class Command(BaseCommand):
             "security",
             "caller",
             "mechanic",
+            "driver",
         ]
 
         for role in roles:

@@ -1,5 +1,6 @@
 import uuid
 
+from django.conf import settings
 from django.db import models, transaction
 from django.db.models import F
 from django.utils import timezone
@@ -85,6 +86,13 @@ class JobCard(models.Model):
     purpose_of_visit = models.CharField(max_length=255, blank=True, null=True)
     service_advisor_id = models.CharField(max_length=100, blank=True, null=True)
     assigned_technician_id = models.CharField(max_length=100, blank=True, null=True)
+    caller = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="caller_job_cards",
+    )
     observation_remarks = models.TextField(blank=True, null=True)
 
     calling_status = models.IntegerField(default=0)

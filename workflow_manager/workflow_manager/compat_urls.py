@@ -39,6 +39,10 @@ from .compat_views import (
     CompatWalletDetailView,
     CompatWalletsView,
     CompatTodayOperationsView,
+    CompatDashboardKpisView,
+    CompatDriverAssignmentsView,
+    CompatDriverAssignmentDetailView,
+    CompatDriverAssignmentExpensesView,
 )
 from .telecrm_views import CompatTelecrmDashboardView, CompatTelecrmLeadSyncView
 
@@ -180,5 +184,25 @@ urlpatterns = [
         "dashboard/today/",
         CompatTodayOperationsView.as_view(),
         name="compat-dashboard-today",
+    ),
+    path(
+        "dashboard/kpis/",
+        CompatDashboardKpisView.as_view(),
+        name="compat-dashboard-kpis",
+    ),
+    path(
+        "driver-assignments/",
+        CompatDriverAssignmentsView.as_view(),
+        name="compat-driver-assignments",
+    ),
+    path(
+        "driver-assignments/<uuid:pk>/",
+        CompatDriverAssignmentDetailView.as_view(),
+        name="compat-driver-assignment-detail",
+    ),
+    path(
+        "driver-assignments/<uuid:pk>/expenses/",
+        CompatDriverAssignmentExpensesView.as_view(),
+        name="compat-driver-assignment-expenses",
     ),
 ]

@@ -53,3 +53,12 @@ class IsCallerOrAdmin(HasAnyRole):
 
 class IsMechanicOrAdmin(HasAnyRole):
     required_roles = (RoleName.MECHANIC,)
+
+
+class IsDriverOrAdmin(HasAnyRole):
+    required_roles = (RoleName.DRIVER,)
+
+
+class IsDriverOnly(HasAnyRole):
+    required_roles = (RoleName.DRIVER,)
+    admin_bypass = False

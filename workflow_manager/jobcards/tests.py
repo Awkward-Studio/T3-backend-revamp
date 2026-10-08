@@ -917,3 +917,121 @@ class BodyshopOnlyWorkflowTests(TestCase):
         checklist_names = [task["name"] for task in open_res.data["mechanicChecklist"]]
         self.assertIn("Door Repair", checklist_names)
 
+
+class JobCardCallerFieldTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user_model = get_user_model()
+
+        self.admin_role, _ = Role.objects.get_or_create(name=RoleName.ADMIN)
+        self.service_role, _ = Role.objects.get_or_create(name=RoleName.SERVICE)
+        self.mechanic_role, _ = Role.objects.get_or_create(name=RoleName.MECHANIC)
+        self.caller_role, _ = Role.objects.get_or_create(name=RoleName.CALLER)
+
+        self.service_user = self.user_model.objects.create_user(
+            username="service_advisor",
+            email="service@example.com",
+            password="password123",
+        )
+        self.service_user.roles.add(self.service_role)
+
+        self.mechanic_user = self.user_model.objects.create_user(
+            username="mechanic_tech",
+            email="mechanic@example.com",
+            password="password123",
+        )
+        self.mechanic_user.roles.add(self.mechanic_role)
+
+        self.caller_user = self.user_model.objects.create_user(
+            username="caller_agent",
+            first_name="Ravi",
+            last_name="Kumar",
+            email="ravi.caller@example.com",
+            password="password123",
+        )
+        self.caller_user.roles.add(self.caller_role)
+
+        self.car = Car.objects.create(
+            car_number="MH04XY1234",
+            car_make="Hyundai",
+            car_model="i20",
+            customer_name="Aarav Sharma",
+            customer_phone="9876543210",
+        )
+        self.temp_car = TempCar.objects.create(
+            car=self.car,
+            purpose_of_visit_and_advisors=[{"description": "Periodic Service"}],
+        )
+
+    def test_create_jobcard_with_caller_id(self):
+        self.client.force_authenticate(user=self.service_user)
+        response = self.client.post(
+            "/api/compat/jobcards/",
+            {
+                "carId": str(self.temp_car.pk),
+                "carNumber": self.car.car_number,
+                "customerName": self.car.customer_name,
+                "customerPhone": self.car.customer_phone,
+                "purposeOfVisit": "Periodic Service",
+                "assignedMechanicId": str(self.mechanic_user.pk),
+                "requiredDate": "2026-10-10",
+                "callerId": str(self.caller_user.pk),
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["callerId"], str(self.caller_user.pk))
+        self.assertEqual(response.data["callerName"], "Ravi Kumar")
+        self.assertIsNotNone(response.data["caller"])
+        self.assertEqual(response.data["caller"]["$id"], str(self.caller_user.pk))
+
+        jobcard = JobCard.objects.get(pk=response.data["$id"])
+        self.assertEqual(jobcard.caller, self.caller_user)
+
+    def test_create_jobcard_without_caller_id(self):
+        self.client.force_authenticate(user=self.service_user)
+        response = self.client.post(
+            "/api/compat/jobcards/",
+            {
+                "carId": str(self.temp_car.pk),
+                "carNumber": self.car.car_number,
+                "customerName": self.car.customer_name,
+                "customerPhone": self.car.customer_phone,
+                "purposeOfVisit": "Periodic Service",
+                "assignedMechanicId": str(self.mechanic_user.pk),
+                "requiredDate": "2026-10-10",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["callerId"], "")
+        self.assertEqual(response.data["callerName"], "")
+        self.assertIsNone(response.data["caller"])
+
+        jobcard = JobCard.objects.get(pk=response.data["$id"])
+        self.assertIsNone(jobcard.caller)
+
+    def test_patch_jobcard_caller(self):
+        jobcard = JobCard.objects.create(
+            car_id="TEST-PATCH-CALLER",
+            car_number="MH04XY9999",
+            job_card_status=0,
+            customer_name="Test Customer",
+            customer_phone="9999999999",
+            workflow_status=JobCard.WorkflowStatus.JOB_CARD_CREATED,
+            assigned_technician_id=str(self.mechanic_user.pk),
+            job_card_number=None,
+        )
+        self.client.force_authenticate(user=self.service_user)
+        patch_response = self.client.patch(
+            f"/api/compat/jobcards/{jobcard.pk}/",
+            {"callerId": str(self.caller_user.pk)},
+            format="json",
+        )
+        self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
+        jobcard.refresh_from_db()
+        self.assertEqual(jobcard.caller, self.caller_user)
+        self.assertEqual(patch_response.data["callerId"], str(self.caller_user.pk))
+        self.assertEqual(patch_response.data["callerName"], "Ravi Kumar")
+
+

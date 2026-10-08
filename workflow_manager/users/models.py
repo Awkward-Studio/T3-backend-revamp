@@ -11,6 +11,7 @@ class RoleName:
     SECURITY = "security"
     CALLER = "caller"
     MECHANIC = "mechanic"
+    DRIVER = "driver"
 
     ALL = (
         ADMIN,
@@ -20,6 +21,7 @@ class RoleName:
         SECURITY,
         CALLER,
         MECHANIC,
+        DRIVER,
     )
 
 

@@ -8,6 +8,7 @@ from .user_management import (
     VALID_ROLE_NAMES,
     build_preferences,
     extract_advisor_roles,
+    extract_monthly_targets,
     normalize_role_name,
 )
 
@@ -32,6 +33,7 @@ class UserSerializer(serializers.ModelSerializer):
     )
     current_role = serializers.SerializerMethodField(read_only=True)
     advisor_roles = serializers.SerializerMethodField(read_only=True)
+    monthly_targets = serializers.SerializerMethodField(read_only=True)
     created_date = serializers.DateTimeField(source="date_joined", read_only=True)
     password = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
@@ -48,6 +50,7 @@ class UserSerializer(serializers.ModelSerializer):
             "role",
             "current_role",
             "advisor_roles",
+            "monthly_targets",
             "created_date",
             "password",
         ]
@@ -60,6 +63,10 @@ class UserSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_advisor_roles(self, obj) -> List[str]:
         return extract_advisor_roles(obj.preferences)
+
+    @extend_schema_field(serializers.DictField())
+    def get_monthly_targets(self, obj) -> dict:
+        return extract_monthly_targets(obj.preferences)
 
     def validate_email(self, value):
         email = value.strip().lower()

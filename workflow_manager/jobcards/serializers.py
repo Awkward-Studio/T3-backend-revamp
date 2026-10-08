@@ -53,6 +53,7 @@ class JobCardSerializer(serializers.ModelSerializer):
             "purpose_of_visit",
             "service_advisor_id",
             "assigned_technician_id",
+            "caller",
             "observation_remarks",
             "calling_status",
             "workflow_status",
@@ -120,6 +121,21 @@ class JobCardSerializer(serializers.ModelSerializer):
                     break
         return round(total, 2)
 
+    def to_internal_value(self, data):
+        if hasattr(data, "copy"):
+            data = data.copy()
+        elif isinstance(data, dict):
+            data = dict(data)
+        if "callerId" in data and "caller" not in data:
+            caller_val = data.get("callerId")
+            if caller_val in ("", "none", "null", None):
+                data["caller"] = None
+            else:
+                data["caller"] = caller_val
+        elif "caller" in data and data.get("caller") in ("", "none", "null"):
+            data["caller"] = None
+        return super().to_internal_value(data)
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
 
@@ -164,6 +180,27 @@ class JobCardSerializer(serializers.ModelSerializer):
             "$updatedAt": data.get("updated_at"),
             "serviceAdvisorID": data.get("service_advisor_id"),
             "assignedMechanicId": data.get("assigned_technician_id") or "",
+            "callerId": str(instance.caller_id) if instance.caller_id else "",
+            "callerName": (
+                f"{instance.caller.first_name} {instance.caller.last_name}".strip()
+                or instance.caller.username
+                or instance.caller.email
+            )
+            if instance.caller
+            else "",
+            "caller": (
+                {
+                    "$id": str(instance.caller.pk),
+                    "name": (
+                        f"{instance.caller.first_name} {instance.caller.last_name}".strip()
+                        or instance.caller.username
+                        or instance.caller.email
+                    ),
+                    "email": instance.caller.email,
+                }
+                if instance.caller
+                else None
+            ),
             "carId": data.get("car_id"),
             "diagnosis": data.get("diagnosis") or [],
             "accessories": data.get("accessories") or [],

@@ -1,6 +1,5 @@
-# yourapp/serializers.py
 from rest_framework import serializers
-from .models import Car, TempCar
+from .models import Car, DriverAssignment, DriverExpense, TempCar
 
 
 class CarSerializer(serializers.ModelSerializer):
@@ -59,3 +58,93 @@ class TempCarSerializer(serializers.ModelSerializer):
             "purpose_of_visit_and_advisors",
             "all_job_card_ids",
         ]
+
+
+class DriverExpenseSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = DriverExpense
+        fields = [
+            "id",
+            "assignment",
+            "category",
+            "amount",
+            "description",
+            "created_by",
+            "created_by_name",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_by", "created_at", "updated_at"]
+
+    def get_created_by_name(self, obj):
+        if not obj.created_by:
+            return ""
+        name = f"{obj.created_by.first_name} {obj.created_by.last_name}".strip()
+        return name or obj.created_by.username or obj.created_by.email
+
+
+class DriverAssignmentSerializer(serializers.ModelSerializer):
+    driver_name = serializers.SerializerMethodField(read_only=True)
+    driver_email = serializers.SerializerMethodField(read_only=True)
+    driver_phone = serializers.SerializerMethodField(read_only=True)
+    expenses = DriverExpenseSerializer(many=True, read_only=True)
+    total_expenses = serializers.DecimalField(
+        max_digits=10, decimal_places=2, read_only=True
+    )
+
+    class Meta:
+        model = DriverAssignment
+        fields = [
+            "id",
+            "assignment_type",
+            "status",
+            "driver",
+            "driver_name",
+            "driver_email",
+            "driver_phone",
+            "car",
+            "car_number",
+            "car_make",
+            "car_model",
+            "customer_name",
+            "customer_phone",
+            "customer_address",
+            "customer_email",
+            "temp_car",
+            "job_card",
+            "pickup_location",
+            "drop_location",
+            "notes",
+            "assigned_at",
+            "started_at",
+            "completed_at",
+            "created_by",
+            "created_at",
+            "updated_at",
+            "expenses",
+            "total_expenses",
+        ]
+        read_only_fields = [
+            "id",
+            "total_expenses",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_driver_name(self, obj):
+        if not obj.driver:
+            return ""
+        name = f"{obj.driver.first_name} {obj.driver.last_name}".strip()
+        return name or obj.driver.username or obj.driver.email
+
+    def get_driver_email(self, obj):
+        return obj.driver.email if obj.driver else ""
+
+    def get_driver_phone(self, obj):
+        if not obj.driver:
+            return ""
+        prefs = getattr(obj.driver, "preferences", {}) or {}
+        return prefs.get("phone", "")

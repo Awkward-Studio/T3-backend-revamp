@@ -1,5 +1,6 @@
+import calendar
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from auditlog.models import HistoryEntry
@@ -51,10 +52,17 @@ from users.user_management import (
     VALID_ROLE_NAMES,
     build_preferences,
     extract_advisor_roles,
+    extract_monthly_targets,
     normalize_role_name,
     split_full_name,
 )
-from vehicle_management.models import Car, CustomerPortal, TempCar
+from vehicle_management.models import (
+    Car,
+    CustomerPortal,
+    DriverAssignment,
+    DriverExpense,
+    TempCar,
+)
 
 from .caller_service import caller_car_records
 
@@ -385,6 +393,7 @@ def serialize_user(user):
         "currentRole": primary_role,
         "role": primary_role,
         "advisorRoles": extract_advisor_roles(user.preferences),
+        "monthlyTargets": extract_monthly_targets(user.preferences),
     }
 
 
@@ -577,6 +586,14 @@ def serialize_temp_car(temp_car, job_card_map=None, approval_map=None):
         "carsTableId": temp_car.cars_table_id or str(temp_car.car_id),
         **_temp_car_service_actions(temp_car, job_card_map, approval_map),
     }
+    linked_pickup = (
+        temp_car.driver_assignments.filter(assignment_type="PICKUP").first()
+        if hasattr(temp_car, "driver_assignments")
+        else None
+    )
+    if linked_pickup:
+        payload["pickupAssignmentId"] = str(linked_pickup.id)
+        payload["hasPickupAssignment"] = True
     return payload
 
 
@@ -647,6 +664,15 @@ def serialize_jobcard(jobcard):
         "postDeliveryCompletedBy": jobcard.post_delivery_completed_by or "",
         "assignedMechanicId": str(jobcard.assigned_technician_id or ""),
         "assignedMechanic": assigned_mechanic,
+        "callerId": str(jobcard.caller_id) if jobcard.caller_id else "",
+        "callerName": (
+            f"{jobcard.caller.first_name} {jobcard.caller.last_name}".strip()
+            or jobcard.caller.username
+            or jobcard.caller.email
+        )
+        if jobcard.caller
+        else "",
+        "caller": serialize_user(jobcard.caller) if jobcard.caller else None,
     }
 
 
@@ -1593,6 +1619,10 @@ class CompatUserListView(CompatAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        monthly_targets = request.data.get(
+            "monthlyTargets", request.data.get("monthly_targets")
+        )
+
         try:
             preferences = build_preferences(
                 None,
@@ -1600,6 +1630,8 @@ class CompatUserListView(CompatAPIView):
                 advisor_roles=advisor_roles,
                 prefs_payload=prefs,
                 advisor_roles_provided=advisor_roles is not None,
+                monthly_targets=monthly_targets,
+                monthly_targets_provided=monthly_targets is not None,
             )
         except ValueError as exc:
             return Response(
@@ -1646,6 +1678,12 @@ class CompatUserDetailView(CompatAPIView):
         advisor_roles = request.data.get(
             "advisorRoles", request.data.get("advisor_roles")
         )
+        monthly_targets_provided = (
+            "monthlyTargets" in request.data or "monthly_targets" in request.data
+        )
+        monthly_targets = request.data.get(
+            "monthlyTargets", request.data.get("monthly_targets")
+        )
 
         if email is not None:
             email = str(email).strip().lower()
@@ -1689,6 +1727,8 @@ class CompatUserDetailView(CompatAPIView):
                 advisor_roles=advisor_roles,
                 prefs_payload=prefs,
                 advisor_roles_provided=advisor_roles_provided,
+                monthly_targets=monthly_targets,
+                monthly_targets_provided=monthly_targets_provided,
             )
         except ValueError as exc:
             return Response(
@@ -1921,11 +1961,12 @@ class CompatCarDetailView(CompatAPIView):
             if "updated_at" not in updated_fields:
                 updated_fields.append("updated_at")
             car.save(update_fields=updated_fields)
+            is_calling_update = "callingStatus" in request.data
             log_history(
                 request,
                 car.pk,
                 "cars",
-                "updated",
+                "calling_status_updated" if is_calling_update else "updated",
                 _update_changes(previous, serialize_car(car)),
             )
         return Response(serialize_car(car))
@@ -1976,6 +2017,30 @@ class CompatTempCarsView(CompatAPIView):
             all_job_card_ids=all_job_card_ids,
             job_card_id=request.data.get("jobCardId", ""),
         )
+
+        pickup_assignment_id = request.data.get("pickupAssignmentId") or request.data.get("pickup_assignment_id")
+        pickup_qs = DriverAssignment.objects.filter(
+            assignment_type=DriverAssignment.AssignmentType.PICKUP,
+            status__in=[
+                DriverAssignment.AssignmentStatus.ASSIGNED,
+                DriverAssignment.AssignmentStatus.PICKED_UP,
+            ],
+        )
+        pickup = None
+        if pickup_assignment_id:
+            pickup = pickup_qs.filter(pk=pickup_assignment_id).first()
+        if not pickup:
+            pickup = pickup_qs.filter(car=car).first()
+        if not pickup and car.car_number:
+            pickup = pickup_qs.filter(car_number__iexact=car.car_number).first()
+
+        if pickup:
+            pickup.temp_car = temp_car
+            pickup.car = car
+            pickup.status = DriverAssignment.AssignmentStatus.COMPLETED
+            pickup.completed_at = timezone.now()
+            pickup.save()
+
         log_history(
             request,
             temp_car.pk,
@@ -2091,6 +2156,19 @@ class CompatJobCardsView(CompatAPIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        caller_raw = (
+            request.data.get("callerId")
+            if "callerId" in request.data
+            else request.data.get("caller")
+        )
+        caller_user = None
+        if caller_raw and str(caller_raw).strip() not in ("", "none", "null"):
+            try:
+                caller_pk = int(str(caller_raw).strip())
+                caller_user = CustomUser.objects.filter(pk=caller_pk).first()
+            except (TypeError, ValueError):
+                caller_user = None
+
         temp_car = get_object_or_404(
             TempCar.objects.select_related("car"), pk=request.data.get("carId")
         )
@@ -2134,6 +2212,7 @@ class CompatJobCardsView(CompatAPIView):
             "apply_gst": bool(request.data.get("applyGst", True)),
             "service_advisor_id": request.data.get("serviceAdvisorID", ""),
             "assigned_technician_id": assigned_mechanic_id,
+            "caller": caller_user,
         }
         jobcard, created = JobCard.objects.get_or_create(
             car_id=str(temp_car.pk),
@@ -2142,6 +2221,9 @@ class CompatJobCardsView(CompatAPIView):
 
         if not created:
             update_fields = []
+            if jobcard.caller != caller_user:
+                jobcard.caller = caller_user
+                update_fields.append("caller")
             if jobcard.assigned_technician_id != assigned_mechanic_id:
                 jobcard.assigned_technician_id = assigned_mechanic_id
                 update_fields.append("assigned_technician_id")
@@ -2339,6 +2421,21 @@ class CompatJobCardDetailView(CompatAPIView):
         if required_date is not None:
             jobcard.required_date = required_date
             updated_fields.append("required_date")
+        if "callerId" in request.data or "caller" in request.data:
+            caller_raw = (
+                request.data.get("callerId")
+                if "callerId" in request.data
+                else request.data.get("caller")
+            )
+            if not caller_raw or str(caller_raw).strip() in ("", "none", "null"):
+                jobcard.caller = None
+            else:
+                try:
+                    caller_pk = int(str(caller_raw).strip())
+                    jobcard.caller = CustomUser.objects.filter(pk=caller_pk).first()
+                except (TypeError, ValueError):
+                    jobcard.caller = None
+            updated_fields.append("caller")
         for source, target in field_map.items():
             if source in request.data:
                 value = request.data[source]
@@ -4053,5 +4150,656 @@ class CompatTodayOperationsView(CompatAPIView):
                 "detailed_list": detailed_list
             }
         })
+
+
+class CompatDashboardKpisView(CompatAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        role = user.get_primary_role() or ""
+        now = timezone.localtime(timezone.now())
+        start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        _, last_day = calendar.monthrange(now.year, now.month)
+        end_of_month = now.replace(
+            day=last_day, hour=23, minute=59, second=59, microsecond=999999
+        )
+
+        prefs = user.preferences or {}
+        targets = extract_monthly_targets(prefs)
+
+        target_cars = int(targets.get("targetCars") or targets.get("target_cars") or 0)
+        target_revenue = float(
+            targets.get("targetRevenue") or targets.get("target_revenue") or 0
+        )
+        target_calls = int(targets.get("targetCalls") or targets.get("target_calls") or 0)
+
+        user_email = (user.email or "").strip().lower()
+
+        # 1. Service Advisor metrics
+        service_jobcards = JobCard.objects.filter(
+            created_at__gte=start_of_month,
+            created_at__lte=end_of_month,
+        )
+        if user_email:
+            service_jobcards = service_jobcards.filter(
+                service_advisor_id__iexact=user_email
+            )
+        else:
+            service_jobcards = service_jobcards.none()
+
+        completed_jobcards = service_jobcards.filter(job_card_status__gte=6)
+        completed_cars = completed_jobcards.count()
+        completed_revenue = float(sum(jc.amount for jc in completed_jobcards) or 0)
+
+        cars_remaining = max(0, target_cars - completed_cars) if target_cars > 0 else 0
+        cars_pct = (completed_cars / target_cars * 100.0) if target_cars > 0 else 0.0
+
+        revenue_remaining = (
+            max(0.0, target_revenue - completed_revenue) if target_revenue > 0 else 0.0
+        )
+        revenue_pct = (
+            (completed_revenue / target_revenue * 100.0) if target_revenue > 0 else 0.0
+        )
+
+        # 2. Caller metrics
+        caller_history = HistoryEntry.objects.filter(
+            object_type="cars",
+            created_at__gte=start_of_month,
+            created_at__lte=end_of_month,
+        )
+        if user_email:
+            caller_history = caller_history.filter(user_email__iexact=user_email)
+        else:
+            caller_history = caller_history.none()
+
+        completed_car_ids = set()
+        for entry in caller_history:
+            history_str = "".join(entry.history)
+            if (
+                "callingStatus" in history_str
+                or entry.operation_type == "calling_status_updated"
+            ):
+                if (
+                    '"currentState": 2' in history_str
+                    or "'currentState': 2" in history_str
+                    or '"currentState": "2"' in history_str
+                ):
+                    completed_car_ids.add(entry.object_id)
+
+        completed_calls = len(completed_car_ids)
+        calls_remaining = max(0, target_calls - completed_calls) if target_calls > 0 else 0
+        calls_pct = (completed_calls / target_calls * 100.0) if target_calls > 0 else 0.0
+
+        cutoff_date = timezone.now() - timedelta(days=90)
+        due_records = caller_car_records(cutoff_date)
+        due_followups_count = len(due_records)
+
+        return Response({
+            "month": now.strftime("%B %Y"),
+            "role": role,
+            "targets": targets,
+            "service": {
+                "completedCars": completed_cars,
+                "targetCars": target_cars,
+                "remainingCars": cars_remaining,
+                "carsPercentage": round(cars_pct, 1),
+                "completedRevenue": completed_revenue,
+                "targetRevenue": target_revenue,
+                "remainingRevenue": revenue_remaining,
+                "revenuePercentage": round(revenue_pct, 1),
+            },
+            "caller": {
+                "completedCalls": completed_calls,
+                "targetCalls": target_calls,
+                "remainingCalls": calls_remaining,
+                "callsPercentage": round(calls_pct, 1),
+                "dueFollowups": due_followups_count,
+            },
+        })
+
+
+def serialize_driver_expense(expense):
+    created_by_name = ""
+    if expense.created_by:
+        created_by_name = (
+            f"{expense.created_by.first_name} {expense.created_by.last_name}".strip()
+            or expense.created_by.username
+            or expense.created_by.email
+        )
+
+    return {
+        **_doc_meta(expense, "driver-expenses"),
+        "id": str(expense.id),
+        "assignmentId": str(expense.assignment_id),
+        "category": expense.category,
+        "amount": float(expense.amount),
+        "description": expense.description or "",
+        "createdBy": str(expense.created_by_id) if expense.created_by_id else "",
+        "createdByName": created_by_name,
+        "createdAt": _iso(expense.created_at),
+        "updatedAt": _iso(expense.updated_at),
+    }
+
+
+def serialize_driver_assignment(assignment):
+    expenses = [serialize_driver_expense(e) for e in assignment.expenses.all()]
+    total_expenses = sum(e["amount"] for e in expenses)
+    driver_name = ""
+    driver_email = ""
+    driver_phone = ""
+    if assignment.driver:
+        driver_name = (
+            f"{assignment.driver.first_name} {assignment.driver.last_name}".strip()
+            or assignment.driver.username
+            or assignment.driver.email
+        )
+        driver_email = assignment.driver.email or ""
+        prefs = getattr(assignment.driver, "preferences", {}) or {}
+        driver_phone = str(prefs.get("phone") or "")
+
+    car_number = assignment.car_number or (assignment.car.car_number if assignment.car else "")
+    car_make = assignment.car_make or (assignment.car.car_make if assignment.car else "")
+    car_model = assignment.car_model or (assignment.car.car_model if assignment.car else "")
+    customer_name = assignment.customer_name or (assignment.car.customer_name if assignment.car else "")
+    customer_phone = assignment.customer_phone or (assignment.car.customer_phone if assignment.car else "")
+    customer_address = assignment.customer_address or (assignment.car.customer_address if assignment.car else "")
+    customer_email = assignment.customer_email or (assignment.car.customer_email if assignment.car else "")
+
+    return {
+        **_doc_meta(assignment, "driver-assignments"),
+        "id": str(assignment.id),
+        "assignmentType": assignment.assignment_type,
+        "status": assignment.status,
+        "driverId": str(assignment.driver_id) if assignment.driver_id else "",
+        "driverName": driver_name,
+        "driverEmail": driver_email,
+        "driverPhone": driver_phone,
+        "carId": str(assignment.car_id) if assignment.car_id else "",
+        "carNumber": car_number,
+        "carMake": car_make,
+        "carModel": car_model,
+        "customerName": customer_name,
+        "customerPhone": customer_phone,
+        "customerAddress": customer_address,
+        "customerEmail": customer_email,
+        "tempCarId": str(assignment.temp_car_id) if assignment.temp_car_id else "",
+        "jobCardId": str(assignment.job_card_id) if assignment.job_card_id else "",
+        "pickupLocation": assignment.pickup_location or "",
+        "dropLocation": assignment.drop_location or "",
+        "notes": assignment.notes or "",
+        "assignedAt": _iso(assignment.assigned_at),
+        "startedAt": _iso(assignment.started_at),
+        "completedAt": _iso(assignment.completed_at),
+        "expenses": expenses,
+        "totalExpenses": total_expenses,
+        "createdAt": _iso(assignment.created_at),
+        "updatedAt": _iso(assignment.updated_at),
+    }
+
+
+class CompatDriverAssignmentsView(CompatAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        is_admin = _compat_is_admin(request)
+        is_driver = getattr(user, "is_authenticated", False) and user.has_role(RoleName.DRIVER)
+
+        qs = (
+            DriverAssignment.objects.select_related("driver", "car", "job_card", "temp_car")
+            .prefetch_related("expenses", "expenses__created_by")
+            .all()
+        )
+
+        # Drivers only see their own assignments
+        if is_driver and not is_admin:
+            qs = qs.filter(driver=user)
+
+        # Filters
+        assignment_type = request.query_params.get("type") or request.query_params.get("assignmentType")
+        if assignment_type:
+            qs = qs.filter(assignment_type__iexact=assignment_type)
+
+        status_val = request.query_params.get("status")
+        if status_val:
+            statuses = [s.strip() for s in status_val.split(",") if s.strip()]
+            if len(statuses) == 1:
+                qs = qs.filter(status__iexact=statuses[0])
+            else:
+                qs = qs.filter(status__in=statuses)
+
+        driver_id = request.query_params.get("driverId")
+        if driver_id and is_admin:
+            qs = qs.filter(driver_id=driver_id)
+
+        term = request.query_params.get("q")
+        if term:
+            term = term.strip()
+            qs = qs.filter(
+                Q(car_number__icontains=term)
+                | Q(car__car_number__icontains=term)
+                | Q(customer_name__icontains=term)
+                | Q(customer_phone__icontains=term)
+                | Q(pickup_location__icontains=term)
+                | Q(drop_location__icontains=term)
+            )
+
+        qs = qs.order_by("-assigned_at", "-created_at")
+        documents = [serialize_driver_assignment(a) for a in qs]
+        return Response(_list_response(documents))
+
+    def post(self, request):
+        if not _compat_is_admin(request):
+            return Response(
+                {"error": "Forbidden: Only admin can create driver assignments."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        data = request.data
+        assignment_type = (data.get("assignmentType") or data.get("assignment_type") or "PICKUP").upper()
+        if assignment_type not in [
+            DriverAssignment.AssignmentType.PICKUP,
+            DriverAssignment.AssignmentType.DROP,
+        ]:
+            return Response(
+                {"error": "Assignment type must be PICKUP or DROP."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        driver_id = data.get("driverId") or data.get("driver_id")
+        driver = None
+        if driver_id:
+            driver = CustomUser.objects.filter(pk=driver_id).first()
+            if not driver:
+                return Response(
+                    {"error": "Driver user not found."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        notes = data.get("notes", "")
+
+        if assignment_type == DriverAssignment.AssignmentType.PICKUP:
+            pickup_location = data.get("pickupLocation", "").strip()
+            if not pickup_location:
+                return Response(
+                    {"error": "Pickup location is required for pickup assignments."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            car_number = data.get("carNumber", "").strip().upper()
+            car_id = data.get("carId") or data.get("carsTableId")
+            car = None
+            if car_id:
+                car = Car.objects.filter(pk=car_id).first()
+            if not car and car_number:
+                car = Car.objects.filter(car_number__iexact=car_number).first()
+
+            if not car and not car_number:
+                return Response(
+                    {"error": "Vehicle number is required."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            car_make = data.get("carMake", "")
+            car_model = data.get("carModel", "")
+            customer_name = data.get("customerName", "")
+            customer_phone = data.get("customerPhone", "")
+            customer_address = data.get("customerAddress", "")
+            customer_email = data.get("customerEmail", "")
+
+            assignment = DriverAssignment.objects.create(
+                assignment_type=DriverAssignment.AssignmentType.PICKUP,
+                status=DriverAssignment.AssignmentStatus.ASSIGNED,
+                driver=driver,
+                car=car,
+                car_number=car_number or (car.car_number if car else ""),
+                car_make=car_make or (car.car_make if car else ""),
+                car_model=car_model or (car.car_model if car else ""),
+                customer_name=customer_name or (car.customer_name if car else ""),
+                customer_phone=customer_phone or (car.customer_phone if car else ""),
+                customer_address=customer_address or (car.customer_address if car else ""),
+                customer_email=customer_email or (car.customer_email if car else ""),
+                pickup_location=pickup_location,
+                notes=notes,
+                created_by=request.user,
+            )
+
+        else:  # DROP
+            drop_location = data.get("dropLocation", "").strip()
+            if not drop_location:
+                return Response(
+                    {"error": "Drop destination is required for drop assignments."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            job_card_id = data.get("jobCardId") or data.get("job_card_id")
+            car_id = data.get("carId") or data.get("carsTableId")
+            job_card = None
+            car = None
+
+            if job_card_id:
+                job_card = JobCard.objects.filter(pk=job_card_id).first()
+                if job_card:
+                    car = Car.objects.filter(car_number__iexact=job_card.car_number).first()
+            elif car_id:
+                car = Car.objects.filter(pk=car_id).first()
+
+            if not job_card and not car:
+                return Response(
+                    {"error": "An existing JobCard or Car is required for drop assignments."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            car_number = job_card.car_number if job_card else (car.car_number if car else "")
+            customer_name = (
+                (job_card.customer_name if job_card else None)
+                or (car.customer_name if car else "")
+            )
+            customer_phone = (
+                (job_card.customer_phone if job_card else None)
+                or (car.customer_phone if car else "")
+            )
+            customer_address = (
+                (job_card.customer_address if job_card else None)
+                or (car.customer_address if car else "")
+            )
+            customer_email = (
+                (job_card.customer_email if job_card else None)
+                or (car.customer_email if car else "")
+            )
+
+            assignment = DriverAssignment.objects.create(
+                assignment_type=DriverAssignment.AssignmentType.DROP,
+                status=DriverAssignment.AssignmentStatus.ASSIGNED,
+                driver=driver,
+                car=car,
+                job_card=job_card,
+                car_number=car_number,
+                car_make=car.car_make if car else "",
+                car_model=car.car_model if car else "",
+                customer_name=customer_name or "",
+                customer_phone=customer_phone or "",
+                customer_address=customer_address or "",
+                customer_email=customer_email or "",
+                drop_location=drop_location,
+                notes=notes,
+                created_by=request.user,
+            )
+
+        log_history(
+            request,
+            assignment.pk,
+            "driver-assignments",
+            "created",
+            _creation_changes(serialize_driver_assignment(assignment)),
+        )
+
+        return Response(
+            serialize_driver_assignment(assignment),
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class CompatDriverAssignmentDetailView(CompatAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, pk):
+        assignment = get_object_or_404(
+            DriverAssignment.objects.select_related("driver", "car", "job_card", "temp_car")
+            .prefetch_related("expenses", "expenses__created_by"),
+            pk=pk,
+        )
+
+        user = request.user
+        is_admin = _compat_is_admin(request)
+        is_driver = getattr(user, "is_authenticated", False) and user.has_role(RoleName.DRIVER)
+
+        if is_driver and not is_admin and assignment.driver_id != user.id:
+            return Response(
+                {"error": "Forbidden: You can only view your own assignments."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        return Response(serialize_driver_assignment(assignment))
+
+    def patch(self, request, pk):
+        assignment = get_object_or_404(DriverAssignment, pk=pk)
+        previous = serialize_driver_assignment(assignment)
+        user = request.user
+        is_admin = _compat_is_admin(request)
+        is_driver = getattr(user, "is_authenticated", False) and user.has_role(RoleName.DRIVER)
+
+        if not is_admin and (not is_driver or assignment.driver_id != user.id):
+            return Response(
+                {"error": "Forbidden: You cannot modify this assignment."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Check terminal status
+        if assignment.status in [
+            DriverAssignment.AssignmentStatus.COMPLETED,
+            DriverAssignment.AssignmentStatus.DROPPED,
+            DriverAssignment.AssignmentStatus.CANCELLED,
+        ] and not is_admin:
+            return Response(
+                {"error": "Cannot modify an already completed or cancelled assignment."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = request.data
+        next_status = data.get("status")
+
+        if next_status:
+            next_status = next_status.upper()
+            if is_driver and not is_admin:
+                # Valid state transitions for Driver
+                if assignment.assignment_type == DriverAssignment.AssignmentType.PICKUP:
+                    if assignment.status == DriverAssignment.AssignmentStatus.ASSIGNED:
+                        if next_status != DriverAssignment.AssignmentStatus.PICKED_UP:
+                            return Response(
+                                {"error": f"Invalid status transition from {assignment.status} to {next_status}."},
+                                status=status.HTTP_400_BAD_REQUEST,
+                            )
+                        assignment.status = DriverAssignment.AssignmentStatus.PICKED_UP
+                        assignment.started_at = timezone.now()
+                    elif assignment.status == DriverAssignment.AssignmentStatus.PICKED_UP:
+                        if next_status != DriverAssignment.AssignmentStatus.COMPLETED:
+                            return Response(
+                                {"error": f"Invalid status transition from {assignment.status} to {next_status}."},
+                                status=status.HTTP_400_BAD_REQUEST,
+                            )
+                        assignment.status = DriverAssignment.AssignmentStatus.COMPLETED
+                        assignment.completed_at = timezone.now()
+                    else:
+                        return Response(
+                            {"error": "Assignment is already completed."},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                else:  # DROP
+                    if assignment.status == DriverAssignment.AssignmentStatus.ASSIGNED:
+                        if next_status != DriverAssignment.AssignmentStatus.DROP_STARTED:
+                            return Response(
+                                {"error": f"Invalid status transition from {assignment.status} to {next_status}."},
+                                status=status.HTTP_400_BAD_REQUEST,
+                            )
+                        assignment.status = DriverAssignment.AssignmentStatus.DROP_STARTED
+                        assignment.started_at = timezone.now()
+                    elif assignment.status == DriverAssignment.AssignmentStatus.DROP_STARTED:
+                        if next_status not in [
+                            DriverAssignment.AssignmentStatus.DROPPED,
+                            DriverAssignment.AssignmentStatus.COMPLETED,
+                        ]:
+                            return Response(
+                                {"error": f"Invalid status transition from {assignment.status} to {next_status}."},
+                                status=status.HTTP_400_BAD_REQUEST,
+                            )
+                        assignment.status = DriverAssignment.AssignmentStatus.DROPPED
+                        assignment.completed_at = timezone.now()
+                    else:
+                        return Response(
+                            {"error": "Assignment is already completed."},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+            else:
+                # Admin can update status
+                assignment.status = next_status
+                if (
+                    next_status in [
+                        DriverAssignment.AssignmentStatus.PICKED_UP,
+                        DriverAssignment.AssignmentStatus.DROP_STARTED,
+                    ]
+                    and not assignment.started_at
+                ):
+                    assignment.started_at = timezone.now()
+                elif (
+                    next_status in [
+                        DriverAssignment.AssignmentStatus.COMPLETED,
+                        DriverAssignment.AssignmentStatus.DROPPED,
+                    ]
+                    and not assignment.completed_at
+                ):
+                    assignment.completed_at = timezone.now()
+
+        # Update other fields
+        if is_admin:
+            if "driverId" in data or "driver_id" in data:
+                d_id = data.get("driverId") or data.get("driver_id")
+                if d_id:
+                    driver = CustomUser.objects.filter(pk=d_id).first()
+                    assignment.driver = driver
+                else:
+                    assignment.driver = None
+
+            if "pickupLocation" in data:
+                assignment.pickup_location = data["pickupLocation"]
+            if "dropLocation" in data:
+                assignment.drop_location = data["dropLocation"]
+            if "customerName" in data:
+                assignment.customer_name = data["customerName"]
+            if "customerPhone" in data:
+                assignment.customer_phone = data["customerPhone"]
+
+        if "notes" in data:
+            assignment.notes = data["notes"]
+        if "dropLocation" in data and is_driver:
+            assignment.drop_location = data["dropLocation"]
+        if "pickupLocation" in data and is_driver:
+            assignment.pickup_location = data["pickupLocation"]
+
+        assignment.save()
+
+        log_history(
+            request,
+            assignment.pk,
+            "driver-assignments",
+            "updated",
+            _update_changes(previous, serialize_driver_assignment(assignment)),
+        )
+
+        return Response(serialize_driver_assignment(assignment))
+
+    def delete(self, request, pk):
+        if not _compat_is_admin(request):
+            return Response(
+                {"error": "Forbidden: Only admin can delete assignments."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        assignment = get_object_or_404(DriverAssignment, pk=pk)
+        log_history(
+            request,
+            assignment.pk,
+            "driver-assignments",
+            "deleted",
+            _deletion_changes(serialize_driver_assignment(assignment)),
+        )
+        assignment.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class CompatDriverAssignmentExpensesView(CompatAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, pk):
+        assignment = get_object_or_404(DriverAssignment, pk=pk)
+        user = request.user
+        is_admin = _compat_is_admin(request)
+        is_driver = getattr(user, "is_authenticated", False) and user.has_role(RoleName.DRIVER)
+
+        if is_driver and not is_admin and assignment.driver_id != user.id:
+            return Response(
+                {"error": "Forbidden: You can only view expenses for your own assignments."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        expenses = assignment.expenses.select_related("created_by").order_by("created_at")
+        documents = [serialize_driver_expense(e) for e in expenses]
+        return Response(_list_response(documents))
+
+    def post(self, request, pk):
+        assignment = get_object_or_404(DriverAssignment, pk=pk)
+        user = request.user
+        is_admin = _compat_is_admin(request)
+        is_driver = getattr(user, "is_authenticated", False) and user.has_role(RoleName.DRIVER)
+
+        if not is_admin and (not is_driver or assignment.driver_id != user.id):
+            return Response(
+                {"error": "Forbidden: You cannot add expenses to this assignment."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # Disallow adding expenses to completed assignments
+        if assignment.status in [
+            DriverAssignment.AssignmentStatus.COMPLETED,
+            DriverAssignment.AssignmentStatus.DROPPED,
+            DriverAssignment.AssignmentStatus.CANCELLED,
+        ] and not is_admin:
+            return Response(
+                {"error": "Cannot add expenses to a completed assignment."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        category = request.data.get("category", "Other")
+        amount_raw = request.data.get("amount")
+        if amount_raw is None or str(amount_raw).strip() == "":
+            return Response(
+                {"error": "Expense amount is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            amount = float(amount_raw)
+            if amount < 0:
+                raise ValueError()
+        except (ValueError, TypeError):
+            return Response(
+                {"error": "Amount must be a non-negative number."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        description = request.data.get("description", "").strip()
+
+        expense = DriverExpense.objects.create(
+            assignment=assignment,
+            category=category,
+            amount=amount,
+            description=description,
+            created_by=user,
+        )
+
+        log_history(
+            request,
+            expense.pk,
+            "driver-expenses",
+            "created",
+            _creation_changes(serialize_driver_expense(expense)),
+        )
+
+        return Response(
+            serialize_driver_expense(expense),
+            status=status.HTTP_201_CREATED,
+        )
+
 
 

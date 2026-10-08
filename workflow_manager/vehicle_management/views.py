@@ -5,8 +5,15 @@ from rest_framework import permissions, status
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 
-from .models import Car, TempCar
-from .serializers import CarSerializer, TempCarSerializer
+from django.utils import timezone
+from users.models import RoleName
+from .models import Car, DriverAssignment, DriverExpense, TempCar
+from .serializers import (
+    CarSerializer,
+    DriverAssignmentSerializer,
+    DriverExpenseSerializer,
+    TempCarSerializer,
+)
 
 
 @extend_schema_view(
@@ -315,3 +322,130 @@ class TempCarDeleteView(GenericAPIView):
                 {"error": "Unable to delete temp car right now."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+
+class DriverAssignmentListCreateView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DriverAssignmentSerializer
+
+    def get(self, request):
+        user = request.user
+        is_admin = getattr(user, "is_authenticated", False) and user.has_role(RoleName.ADMIN)
+        is_driver = getattr(user, "is_authenticated", False) and user.has_role(RoleName.DRIVER)
+
+        qs = DriverAssignment.objects.select_related("driver", "car", "temp_car", "job_card").prefetch_related("expenses")
+        if is_driver and not is_admin:
+            qs = qs.filter(driver=user)
+
+        assignment_type = request.query_params.get("type")
+        if assignment_type:
+            qs = qs.filter(assignment_type__iexact=assignment_type)
+
+        status_param = request.query_params.get("status")
+        if status_param:
+            qs = qs.filter(status__iexact=status_param)
+
+        serializer = self.get_serializer(qs, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        if not (request.user.has_role(RoleName.ADMIN)):
+            return Response(
+                {"error": "Only admin can create driver assignments."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        assignment = serializer.save(created_by=request.user)
+        return Response(self.get_serializer(assignment).data, status=status.HTTP_201_CREATED)
+
+
+class DriverAssignmentDetailView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DriverAssignmentSerializer
+
+    def get(self, request, pk):
+        assignment = get_object_or_404(
+            DriverAssignment.objects.select_related("driver", "car", "temp_car", "job_card").prefetch_related("expenses"),
+            pk=pk,
+        )
+        user = request.user
+        is_admin = user.has_role(RoleName.ADMIN)
+        is_driver = user.has_role(RoleName.DRIVER)
+        if is_driver and not is_admin and assignment.driver_id != user.id:
+            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        return Response(self.get_serializer(assignment).data)
+
+    def patch(self, request, pk):
+        assignment = get_object_or_404(DriverAssignment, pk=pk)
+        user = request.user
+        is_admin = user.has_role(RoleName.ADMIN)
+        is_driver = user.has_role(RoleName.DRIVER)
+
+        if not is_admin and (not is_driver or assignment.driver_id != user.id):
+            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        if assignment.status in [
+            DriverAssignment.AssignmentStatus.COMPLETED,
+            DriverAssignment.AssignmentStatus.DROPPED,
+            DriverAssignment.AssignmentStatus.CANCELLED,
+        ] and not is_admin:
+            return Response(
+                {"error": "Cannot modify completed assignment."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = self.get_serializer(assignment, data=request.data, partial=True)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        updated = serializer.save()
+        return Response(self.get_serializer(updated).data)
+
+
+class DriverExpenseListCreateView(GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DriverExpenseSerializer
+
+    def get(self, request, pk):
+        assignment = get_object_or_404(DriverAssignment, pk=pk)
+        user = request.user
+        is_admin = user.has_role(RoleName.ADMIN)
+        is_driver = user.has_role(RoleName.DRIVER)
+        if is_driver and not is_admin and assignment.driver_id != user.id:
+            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        expenses = assignment.expenses.all().order_by("created_at")
+        serializer = self.get_serializer(expenses, many=True)
+        return Response(serializer.data)
+
+    def post(self, request, pk):
+        assignment = get_object_or_404(DriverAssignment, pk=pk)
+        user = request.user
+        is_admin = user.has_role(RoleName.ADMIN)
+        is_driver = user.has_role(RoleName.DRIVER)
+        if not is_admin and (not is_driver or assignment.driver_id != user.id):
+            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        if assignment.status in [
+            DriverAssignment.AssignmentStatus.COMPLETED,
+            DriverAssignment.AssignmentStatus.DROPPED,
+            DriverAssignment.AssignmentStatus.CANCELLED,
+        ] and not is_admin:
+            return Response(
+                {"error": "Cannot add expenses to completed assignment."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = request.data.copy()
+        data["assignment"] = assignment.id
+        serializer = self.get_serializer(data=data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        expense = serializer.save(assignment=assignment, created_by=user)
+        return Response(self.get_serializer(expense).data, status=status.HTTP_201_CREATED)

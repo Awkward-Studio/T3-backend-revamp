@@ -11,6 +11,9 @@ from .views import (
     TempCarDetailView,
     TempCarUpdateView,
     TempCarDeleteView,
+    DriverAssignmentListCreateView,
+    DriverAssignmentDetailView,
+    DriverExpenseListCreateView,
 )
 
 urlpatterns = [
@@ -35,5 +38,21 @@ urlpatterns = [
         "temp-cars/<int:pk>/delete/",
         TempCarDeleteView.as_view(),
         name="temp-car-delete",
+    ),
+    # driver assignments & expenses
+    path(
+        "driver-assignments/",
+        DriverAssignmentListCreateView.as_view(),
+        name="driver-assignment-list-create",
+    ),
+    path(
+        "driver-assignments/<uuid:pk>/",
+        DriverAssignmentDetailView.as_view(),
+        name="driver-assignment-detail",
+    ),
+    path(
+        "driver-assignments/<uuid:pk>/expenses/",
+        DriverExpenseListCreateView.as_view(),
+        name="driver-assignment-expenses",
     ),
 ]
