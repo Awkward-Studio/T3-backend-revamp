@@ -26,6 +26,7 @@ CALL_TYPES = [
 INCOMING_TYPES = [value for value in CALL_TYPES if "INCOMING" in value]
 OUTGOING_TYPES = [value for value in CALL_TYPES if "OUTGOING" in value] + ["CALL_ACTION"]
 MISSED_TYPES = ["MISSED_CALL"]
+ATTENDED_TYPES = [value for value in CALL_TYPES if value not in MISSED_TYPES]
 MESSAGE_TYPES = [
     "INCOMING_WHATSAPP_MSG", "OUTGOING_WHATSAPP_MSG", "WHATSAPP_ACTION",
     "OUTGOING_SMS", "OUTGOING_EMAIL",
@@ -142,6 +143,7 @@ def build_dashboard(days=30):
         "outgoing": OUTGOING_TYPES,
         "incoming": INCOMING_TYPES,
         "missed": MISSED_TYPES,
+        "attended": ATTENDED_TYPES,
         "messaged": MESSAGE_TYPES,
         "followupsCompleted": FOLLOWUP_TYPES,
     }

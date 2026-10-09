@@ -174,5 +174,6 @@ class TelecrmLeadSyncTests(TestCase):
         dashboard = build_dashboard(30)
 
         self.assertEqual(dashboard["summary"]["totalLeads"], 2)
+        self.assertEqual(dashboard["activity"]["attended"], 3)
         self.assertEqual(dashboard["breakdowns"]["status"], {"Fresh": 1})
         self.assertTrue(any("first 1 of 2" in warning for warning in dashboard["warnings"]))
