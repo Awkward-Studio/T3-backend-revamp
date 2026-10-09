@@ -1565,6 +1565,12 @@ def _compat_is_admin(request):
     ) and request.user.has_role(RoleName.ADMIN)
 
 
+def _compat_can_manage_driver_assignments(request):
+    return bool(
+        getattr(request.user, "is_authenticated", False)
+    ) and request.user.has_any_role((RoleName.ADMIN, RoleName.SERVICE))
+
+
 class CompatUserListView(CompatAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -4344,6 +4350,7 @@ class CompatDriverAssignmentsView(CompatAPIView):
     def get(self, request):
         user = request.user
         is_admin = _compat_is_admin(request)
+        can_manage = _compat_can_manage_driver_assignments(request)
         is_driver = getattr(user, "is_authenticated", False) and user.has_role(RoleName.DRIVER)
 
         qs = (
@@ -4370,7 +4377,7 @@ class CompatDriverAssignmentsView(CompatAPIView):
                 qs = qs.filter(status__in=statuses)
 
         driver_id = request.query_params.get("driverId")
-        if driver_id and is_admin:
+        if driver_id and can_manage:
             qs = qs.filter(driver_id=driver_id)
 
         term = request.query_params.get("q")
@@ -4390,9 +4397,9 @@ class CompatDriverAssignmentsView(CompatAPIView):
         return Response(_list_response(documents))
 
     def post(self, request):
-        if not _compat_is_admin(request):
+        if not _compat_can_manage_driver_assignments(request):
             return Response(
-                {"error": "Forbidden: Only admin can create driver assignments."},
+                {"error": "Forbidden: Only admins and service advisors can create driver assignments."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -4568,9 +4575,10 @@ class CompatDriverAssignmentDetailView(CompatAPIView):
         previous = serialize_driver_assignment(assignment)
         user = request.user
         is_admin = _compat_is_admin(request)
+        can_manage = _compat_can_manage_driver_assignments(request)
         is_driver = getattr(user, "is_authenticated", False) and user.has_role(RoleName.DRIVER)
 
-        if not is_admin and (not is_driver or assignment.driver_id != user.id):
+        if not can_manage and (not is_driver or assignment.driver_id != user.id):
             return Response(
                 {"error": "Forbidden: You cannot modify this assignment."},
                 status=status.HTTP_403_FORBIDDEN,
@@ -4581,7 +4589,7 @@ class CompatDriverAssignmentDetailView(CompatAPIView):
             DriverAssignment.AssignmentStatus.COMPLETED,
             DriverAssignment.AssignmentStatus.DROPPED,
             DriverAssignment.AssignmentStatus.CANCELLED,
-        ] and not is_admin:
+        ] and not can_manage:
             return Response(
                 {"error": "Cannot modify an already completed or cancelled assignment."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -4592,7 +4600,7 @@ class CompatDriverAssignmentDetailView(CompatAPIView):
 
         if next_status:
             next_status = next_status.upper()
-            if is_driver and not is_admin:
+            if is_driver and not can_manage:
                 # Valid state transitions for Driver
                 if assignment.assignment_type == DriverAssignment.AssignmentType.PICKUP:
                     if assignment.status == DriverAssignment.AssignmentStatus.ASSIGNED:
@@ -4662,7 +4670,7 @@ class CompatDriverAssignmentDetailView(CompatAPIView):
                     assignment.completed_at = timezone.now()
 
         # Update other fields
-        if is_admin:
+        if can_manage:
             if "driverId" in data or "driver_id" in data:
                 d_id = data.get("driverId") or data.get("driver_id")
                 if d_id:
@@ -4700,9 +4708,9 @@ class CompatDriverAssignmentDetailView(CompatAPIView):
         return Response(serialize_driver_assignment(assignment))
 
     def delete(self, request, pk):
-        if not _compat_is_admin(request):
+        if not _compat_can_manage_driver_assignments(request):
             return Response(
-                {"error": "Forbidden: Only admin can delete assignments."},
+                {"error": "Forbidden: Only admins and service advisors can delete assignments."},
                 status=status.HTTP_403_FORBIDDEN,
             )
 
@@ -4741,9 +4749,10 @@ class CompatDriverAssignmentExpensesView(CompatAPIView):
         assignment = get_object_or_404(DriverAssignment, pk=pk)
         user = request.user
         is_admin = _compat_is_admin(request)
+        can_manage = _compat_can_manage_driver_assignments(request)
         is_driver = getattr(user, "is_authenticated", False) and user.has_role(RoleName.DRIVER)
 
-        if not is_admin and (not is_driver or assignment.driver_id != user.id):
+        if not can_manage and (not is_driver or assignment.driver_id != user.id):
             return Response(
                 {"error": "Forbidden: You cannot add expenses to this assignment."},
                 status=status.HTTP_403_FORBIDDEN,
@@ -4754,7 +4763,7 @@ class CompatDriverAssignmentExpensesView(CompatAPIView):
             DriverAssignment.AssignmentStatus.COMPLETED,
             DriverAssignment.AssignmentStatus.DROPPED,
             DriverAssignment.AssignmentStatus.CANCELLED,
-        ] and not is_admin:
+        ] and not can_manage:
             return Response(
                 {"error": "Cannot add expenses to a completed assignment."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -4800,6 +4809,3 @@ class CompatDriverAssignmentExpensesView(CompatAPIView):
             serialize_driver_expense(expense),
             status=status.HTTP_201_CREATED,
         )
-
-
-
