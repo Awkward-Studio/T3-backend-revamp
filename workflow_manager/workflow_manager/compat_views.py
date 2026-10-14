@@ -1568,7 +1568,9 @@ def _compat_is_admin(request):
 def _compat_can_manage_driver_assignments(request):
     return bool(
         getattr(request.user, "is_authenticated", False)
-    ) and request.user.has_any_role((RoleName.ADMIN, RoleName.SERVICE))
+    ) and request.user.has_any_role(
+        (RoleName.ADMIN, RoleName.SERVICE, RoleName.CALLER)
+    )
 
 
 class CompatUserListView(CompatAPIView):
